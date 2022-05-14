@@ -1,0 +1,87 @@
+MongoDB supports query operations on geospatial data.
+
+In MongoDB, you can store geospatial data as GeoJSON objects or as legacy coordinate pairs.
+
+GeoJSON objects
+-------------------
+To calculate geometry over an Earth-like sphere, store your location data as GeoJSON objects.
+
+<field>: { type: <GeoJSON type> , coordinates: <coordinates> }
+
+GeoJSON types - Point, LineString, Polygons, MultiPoint, MultiLineString, MultiPolygon, GeometryCollection
+
+If specifying latitude and longitude coordinates, list the longitude first and then latitude. Valid longitude values are between -180 and 180, both inclusive. Valid latitude values are between -90 and 90, both inclusive.
+
+Location data can be stored as Legacy Coordinate pairs. 
+	- Use a 2d index to calculate distances on a Euclidean plane.
+	- Use a 2dsphere index for spherical surface calculations.
+
+To specify data as legacy coordinate pairs, you can use either an array (preferred) or an embedded document. Arrays are preferred over an embedded document as some languages do not guarantee associative map ordering.
+
+MongoDB provides the following geospatial index types to support the geospatial queries.
+	- 2d indexes support queries that calculate geometries on a two-dimensional plane. Although the index can support $nearSphere queries that calculate on a sphere, if possible, use the 2dsphere index for spherical queries.
+	- 2dsphere indexes support queries that calculate geometries on an earth-like sphere.
+
+2d Index
+---------------
+The 2d index is intended for legacy coordinate pairs used in MongoDB 2.2 and earlier.
+
+Use a 2d index if:
+	- your database has legacy coordinate pairs from MongoDB 2.2 or earlier, and
+	- you do not intend to store any location data as GeoJSON objects.
+
+Starting in MongoDB 4.0, you can specify a key option to the $geoNear pipeline stage to indicate the indexed field path to use. This allows the $geoNear stage to be used on a collection that has multiple 2d index and/or multiple 2dsphere index:
+	- If your collection has multiple 2d index and/or multiple 2dsphere index, you must use the key option to specify the indexed field path to use.
+	- If you do not specify the key, you cannot have multiple 2d index and/or multiple 2dsphere index since without the key, index selection among multiple 2d indexes or 2dsphere indexes is ambiguous.
+
+If you do not specify the key, and you have at most only one 2d index index and/or only one 2d index index, MongoDB looks first for a 2d index to use. If a 2d index does not exists, then MongoDB looks for a 2dsphere index to use.
+
+Do not use a 2d index if your location data includes GeoJSON objects. To index on both legacy coordinate pairs and GeoJSON objects, use a 2dsphere index.
+
+You cannot use a 2d index as a shard key when sharding a collection. However, you can create a geospatial index on a sharded collection by using a different field as the shard key.
+
+2d indexes are always sparse and ignore the sparse option.If a document lacks a 2d index field (or the field is null or an empty array), MongoDB does not add an entry for the document to the index.
+
+2d sphere index
+----------------
+Similar to 2d index except that it is used for queries that calculate geometries on a earth-like sphere. 2dsphere index supports all MongoDB geospatial queries: queries for inclusion, intersection and proximity.
+
+The 2dsphere index supports data stored as GeoJSON objects and legacy coordinate pairs0. For legacy coordinate pairs, the index converts the data to GeoJSON Point.
+
+Fields with 2dsphere indexes must hold geometry data in the form of coordinate pairs or GeoJSON data. If you attempt to insert a document with non-geometry data in a 2dsphere indexed field, or build a 2dsphere index on a collection where the indexed field has non-geometry data, the operation will fail.
+
+Geospatial indexes cannot cover a query.
+
+Geospatial Query Operators - $geoIntersects, $geoWithin, $near, $nearSphere
+Aggregation pipeline stage - $geoNear
+
+$geoNear
+--------
+Outputs documents in order of nearest to farthest from a specified point.
+
+{ $geoNear: { <geoNear options> } }
+
+options:
+	- near  - The point for which to find the closest documents.
+	- distanceField - String - The output field that contains the calculated distance.Use dot notation for embedded doc.
+	- spherical - boolean - Default is false 
+		- When false, uses $near for planar geometry with 2d indexes and spherical geometry for 2dSphere
+		- When true, uses $nearSphere and calculates distance using $nearSphere
+	- maxDistance - number - Max distance from the center point to limit the documents to. radians for legacy coordinate pairs and metres for GeoJSON points.
+	- query - You cannot specify $near in query predicate of the $geoNear stage.
+	- distanceMultiplier - number- Used to multiply all distances returned by the query.
+	- includeLocs - boolean- identifies the location used to calculate the distance
+	- uniqueDocs - - Deprecated since 2.6
+	- minDistance - number
+	- key - Specify the geospatial indexed field to use when calculating distance. 
+		- If your collection has multiple 2d and/or multiple 2dsphere indexes, you must use the key option to specify the indexed field path to use. Specify Which Geospatial Index to Use provides a full example.
+		- If there is more than one 2d index or more than one 2dsphere index and you do not specify a key, MongoDB will return an error.
+		- If you do not specify the key, and you have at most only one 2d index and/or only one 2dsphere index, MongoDB looks first for a 2d index to use. If a 2d index does not exists, then MongoDB looks for a 2dsphere index to use.
+
+You can only use $geoNear as the first stage of a pipeline.
+You must include the distanceField option. The distanceField option specifies the field that will contain the calculated distance.
+$geoNear requires a geospatial index.
+You cannot specify a $near predicate in the query field of the $geoNear stage.
+Views do not support geoNear operations (i.e. $geoNear pipeline stage).
+Starting in version 4.2, $geoNear no longer has a default limit of 100 documents.
+Starting in version 4.2, MongoDB removes the limit and num options for the $geoNear stage as well as the default limit of 100 documents. To limit the results of $geoNear, use the $geoNear stage with the $limit stage.

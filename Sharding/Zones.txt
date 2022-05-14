@@ -1,0 +1,11 @@
+In sharded clusters, you can create zones of sharded data based on the shard key. You can associate each zone with one or more shards in the cluster. A shard can associate with any number of zones. In a balanced cluster, MongoDB migrates chunks covered by a zone only to those shards associated with the zone.
+
+Some common deployment patterns where zones can be applied are as follows:
+	- Isolate a specific subset of data on a specific set of shards.
+	- Ensure that the most relevant data reside on shards that are geographically closest to the application servers.
+	- Route data to shards based on the hardware / performance of the shard hardware.
+
+Each zone covers one or more ranges of shard key values for a collection. Each range a zone covers is always inclusive of its lower boundary and exclusive of its upper boundary. Zones cannot share ranges, nor can they have overlapping ranges.
+
+
+

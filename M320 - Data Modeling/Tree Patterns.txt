@@ -1,0 +1,29 @@
+- Parent References
+- Child References
+- Array of Ancestors
+- Materialized Paths
+- Nested sets
+
+- Suitable for hierarchial data structures
+- Answers questions like:
+	- Who are the ancestors of node X? 
+	- Who reports to Y? 
+	- Find all nodes that are under Z? 
+	- Change all categories under N to under P.
+- Commonly used for org charts / product categories use cases
+
+Parent References - db.categories.insertOne(_id: 1, parent: 2). 
+	- Easy to query parent, immediate children but difficult to get ancestors & sub-trees. Uses $graphLookup for those.
+
+Child References - db.categories.insertOne(_id: 1, children: [a, b, c])
+	- Easy to query parent, immediate children but difficult to get ancestors & sub-trees.
+
+Array of Ancestors - db.categories.insertOne(_id: 1, parent: "a", ancestors: [ b, c])
+	- Easy to query ancestors, parent, immediate children and sub-trees. Slightly slower than materialized paths pattern.
+
+Materialized Paths - db.categories.insertOne(_id: 1, path: ",b,c,")
+	- Easy to query using regular expressions from the root but difficult to find from the middle.
+
+Nested Sets - The Nested Sets pattern provides a fast and efficient solution for finding subtrees but is inefficient for modifying the tree structure. As such, this pattern is best for static trees that do not change.
+
+ db.categories.insertOne({_id: 1, left: 5, right: 10})

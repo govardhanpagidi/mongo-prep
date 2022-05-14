@@ -1,0 +1,47 @@
+Relationships
+	- One to Many, Many to One and Many to Many
+	- Crow's foot notation - One to Zillions
+	- When High Cardinality is involved, use One to Zillions instead of one to many
+
+One to Many
+	- Embed or Reference, one or many side.
+	- Embed in the One side. Documents from many side are embedded. Most common for simple apps, few docs to embed
+	- Embed in the many side. Less often used. Useful if many side is queried more often than one side. Embedded object is duplicated but may be ok or preferable.
+	- Embed on the side of the most queried collection.
+	- Prefer referencing when the associated documents are not always needed with the most often queried documents.
+	- Reference in the one side. Array of references across 2 collections. Allows for large docs and high count. Cascade deletes are not supported and application should manage these.
+	- Reference in the many side. preferred representation using references.Allows for large docs and high count. No need to manage the referneces on the one side.
+
+Many to Many
+	- Embed or Reference, Many side.
+	- Can be replaced by 2 one-to-many relationships but does not have to with the document model.
+	- Prefer embedding on the most queried side.	
+	- Prefer embedding for information that is primarily static over time and may profit from duplication.
+	- Prefer referencing over embedding to avoid managing duplication.
+	Embed
+		- Array of sub-documents in either of many sides.
+		- Most queried side is considered. Documents from less queried side are embedded.
+		- Results in duplication
+		- keep source for the embedded documents in another collection
+		- Indexing is done on the array
+	Reference
+		- Array of references in either of many side.
+		- References readily available on the main side upon first query. Need second query if on the other side.
+
+
+One to One
+	- Embed or Reference
+	- Prefer embedding over Referencing for simplicity.
+	Embed
+		- fields at same level. very similar to tabular databases
+		- grouping in sub-documents. preferred representation. preserves simplicity as documents are clearer.
+
+	Reference
+		- same identifier in both documents
+		- in the main one side or secondary one side
+		- adds complexity. preferred for optimization purposes
+
+One to Zillions
+	- Never use embed
+	- Always Reference on the many side
+	- Extra attention or comments to queries or code that handles the zillions of documents

@@ -1,0 +1,78 @@
+Sharding is a method for distributing data across multiple machines. MongoDB uses sharding to support deployments with very large data sets and high throughput operations.
+
+Vertical & Horizontal Scaling
+---------------------------------
+MongoDB support horizontal scaling through sharding.
+
+Sharded Cluster - Shard, mongos, config servers
+
+Shard key can be missing in documents in sharded collections.
+
+Shard Key can be refined by adding a suffix field or fields to the existing key.
+
+Shard key can be updated unless shard key field is the immutable _id field.
+
+To shard a populated collection, the collection must have an index that starts with the shard key.
+
+When sharding an empty collection, MongoDB creates the supporting index if the collection does not already have an appropriate index for the specified shard key.
+
+MongoDB partitions sharded data into chunks. Each chunk has an inclusive lower and exclusive upper range based on the shard key.
+
+mongos can query specific shards or all shards (scatter gather). mongos can support hedged reads to minimize latencies.
+
+If queries do not include the shard key or the prefix of a compound shard key, mongos performs a broadcast operation, querying all shards in the sharded cluster. These scatter/gather queries can be long running operations.
+
+Once a collection has been sharded, MongoDB provides no method to unshard a sharded collection.
+
+sharded and unsharded collections can exist. Shareded collections are partitioned and distributed across the shards. Unsharded collections are stored on a primary shard.
+
+Sharding Strategy - Hashed and Range sharding
+
+Hashed Sharding
+--------------------
+	- Computing hash of the shard key fields's value. Each chunk is then assigned a range based on the hashed shard key values.
+	- MongoDB automatically computes the hashes when resolving queries using hashed indexes. Applications do not need to compute hashes.
+	- While a range of shard keys may be "close", their hashed values are unlikely to be on the same chunk
+	- Data distribution based on hashed values facilitates more even data distribution, especially in data sets where the shard key changes monotonically.
+	- However, hashed distribution means that range-based queries on the shard key are less likely to target a single shard, resulting in more cluster wide broadcast operations
+
+Range Sharding
+------------------
+	- Ranged sharding involves dividing data into ranges based on the shard key values. Each chunk is then assigned a range based on the shard key values.
+	- A range of shard keys whose values are "close" are more likely to reside on the same chunk. This allows for targeted operations as a mongos can route the operations to only the shards that contain the required data.
+	- The efficiency of ranged sharding depends on the shard key chosen. Poorly considered shard keys can result in uneven distribution of data, which can negate some benefits of sharding or can cause performance bottlenecks.
+
+Zones in Sharded Clusters
+--------------------------
+	- Zones can help improve the locality of data for sharded clusters that span multiple data centers.
+	- Each zone covers one or more ranges of shard key values.
+	- You can associate each zone with one or more shards in the cluster. A shard can associate with any number of zones.
+	- In a balanced cluster, MongoDB migrates chunks covered by a zone only to those shards associated with the zone.
+	- Starting in MongoDB 4.0.3, setting up zones and zone ranges before you shard an empty or a non-existing collection allows for a faster setup of zoned sharding.
+
+Collation in Sharding
+---------------------
+	- Use the shardCollection command with the collation : { locale : "simple" } option to shard a collection which has a default collation. 
+	- Successful sharding requires that:
+		- The collection must have an index whose prefix is the shard key
+		- The index must have the collation { locale: "simple" }
+
+	- When creating new collections with a collation, ensure these conditions are met prior to sharding the collection.
+	- Queries on the sharded collection continue to use the default collation configured for the collection. 
+	- To use the shard key index's simple collation, specify {locale : "simple"} in the query's collation document.
+
+Number of Shards - Sharding requires at least two shards to distribute sharded data. Single shard sharded clusters may be useful if you plan on enabling sharding in the near future, but do not need to at the time of deployment.
+
+Number of mongos and Distribution
+---------------------------------
+Deploying multiple mongos routes supports high availability and scalability.
+
+A common pattern is to place a mongos on each application server. Deploying one mongos router on each application server reduces network latency between the application and the router.
+
+Alternatively, you can place a mongos router on dedicated hosts. Large deployments benefit from this approach because it decouples the number of client application servers from the number of mongos instances. This gives greater control over the number of connections the mongod instances serve.
+
+Installing mongos instances on their own hosts allows these instances to use greater amounts of memory. Memory would not be shared with a mongod instance. 
+
+It is possible to use primary shards to host mongos routers but be aware that memory contention may become an issue on large deployments.
+
+There is no limit to the number of mongos routers you can have in a deployment. However, as mongos routers communicate frequently with your config servers, monitor config server performance closely as you increase the number of routers. If you see performance degradation, it may be beneficial to cap the number of mongos routers in your deployment.

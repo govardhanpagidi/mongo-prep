@@ -1,0 +1,105 @@
+MongoDB supports creating indexes on a field or set of fields to support queries. Since MongoDB supports dynamic schemas, applications can query against fields whose names cannot be known in advance or are arbitrary.
+
+MongoDB 4.2 introduces wildcard indexes for supporting queries against unknown or arbitrary fields.
+
+Wildcard indexes are not designed to replace workload-based index planning. 
+
+db.collection.createIndex( { "fieldA.$**" : 1 } )
+
+With this wildcard index, MongoDB indexes all values of fieldA. If the field is a nested document or array, the wildcard index recurses into the document/array and stores the value for all fields in the document/array.
+
+Wildcard projection 
+-------------------
+You can specify wildcard projection for wildcard indexes while creating indexes using createIndex() method.
+
+The path-specific wildcard index syntax is incompatible with the wildcardProjection option. Only {"$**": 1} key pattern is valid if creating a wildcard index field on all document fields. You cannot specify this option if creating a wildcard index on a specific field path and its subfields, e.g. { "path.to.field.$**" : 1 }
+
+The wildcardProjection option takes the following form:
+
+wildcardProjection: {
+  "path.to.field.a" : <value>,
+  "path.to.field.b" : <value>
+}
+
+<value> must be 1 or true to include the field in the wildcard index. 0 or false to exclude.
+
+To create wildcard index on all fields in the docunment
+db.collection.createIndex( { "$**" : 1 } )
+
+To index the values of multiple specific fields in a document:
+db.collection.createIndex(
+  { "$**" : 1 },
+  { "wildcardProjection" :
+    { "fieldA" : 1, "fieldB.fieldC" : 1 }
+  }
+)
+
+Considerations
+---------------
+1. Wildcard indexes can support at most one field in any given query predicate
+2. mongod fcv must be 4.2 to create wildcard indexes
+3. wildcard indexes omit _id by default.To include the _id field in the wildcard index, you must explicitly include it in the wildcardProjection document (i.e. { "_id" : 1 }).
+4. You can create multiple wildcard indexes in a collection.
+5. A wildcard index may cover the same fields as other indexes in the collection.
+6. Wildcard indexes are Sparse Indexes and only contain entries for documents that have the indexed field, even if the index field contains a null value.
+
+Behavior
+------------
+Wildcard indexes have specific behavior when indexing fields which are an object (i.e. an embedded document) or an array:
+	- If the field is an object, the wildcard index descends into the object and indexes its contents. The wildcard index continues descending into any additional embedded documents it encounters.
+	- If the field is an array, then the wildcard index traverses the array and indexes each element:
+		- If an element in the array is an object, the wildcard index descends into the object to index its contents as described above.
+		- If the element is an array - that is, an array which is embedded directly within the parent array - then the wildcard index does not traverse the embedded array, but indexes the entire array as a single value.
+	- For all other fields, record the primitive (non-object/array) value into the index.
+
+Restrictions
+----------------
+1. You cannot shard a collection using a wildcard index. Create a non-wildcard index on the field or fields you want to shard on. For more information on shard key selection, see Shard Keys.
+2. You cannot create a compound index.
+3. You cannot specify the following properties for a wildcard index - TTL and Unique
+4. You cannot create the following index types using wildcard syntax - 2d (geospatial), 2dsphere (geospatial), Hashed
+
+Covered Query
+--------------------
+Wildcard indexes can support a covered query only if all of the following are true:
+	- The query planner selects the wildcard index for satisfying the query predicate.
+	- The query predicate specifies exactly one field covered by the wildcard index.
+	- The projection explicitly excludes _id and includes only the query field.
+	- The specified query field is never an array.
+
+Multi-Field Query Predicates
+----------------------------
+Wildcard indexes can support at most one query predicate field. That is:
+	- MongoDB cannot use a non-wildcard index to satisfy one part of a query predicate and a wildcard index to satisfy another.
+	- MongoDB cannot use one wildcard index to satisfy one part of a query predicate and another wildcard index to satisfy another.
+	- Even if a single wildcard index could support multiple query fields, MongoDB can use the wildcard index to support only one of the query fields. All remaining fields are resolved without an index.
+	
+However, MongoDB may use the same wildcard index for satisfying each independent argument of the query $or or aggregation $or operators.
+
+Queries with sort
+-------------------
+MongoDB can use a wildcard index for satisfying the sort() only if all of the following are true:
+	- The query planner selects the wildcard index for satisfying the query predicate.
+	- The sort() specifies only the query predicate field.
+	- The specified field is never an array.
+
+If the above conditions are not met, MongoDB cannot use the wildcard index for the sort. MongoDB does not support sort() operations that require a different index from that of the query predicate.
+
+Unsupported query patterns
+---------------------------
+	- Wildcard indexes cannot support query condition that checks if a field does not exist.
+	- Wildcard indexes cannot support query condition that checks if a field is or is not equal to a document or an array
+	- Wildcard indexes cannot support query condition that checks if a field is not equal to null.
+
+Query with array indices
+------------------------
+	- MongoDB wildcard indexes do not record the array position of any given element in an array during indexing. However, MongoDB may still select the wildcard index to answer a query which includes a field path with one or more explicit array indices.
+	- Due to the increasing complexity of defining index bounds for each consecutive nested array, MongoDB does not consider the wildcard index to answer a given field path in the query if that path contains more than 8 explicit array indices.
+	
+Note that wildcard indexes themselves do not have any limits on the depth to which they traverse a document while indexing it; the limitation only applies to queries which explicitly specify exact array indices. 
+
+By issuing the same queries without the explicit array indices, MongoDB may select the wildcard index to answer the queries.
+
+
+
+

@@ -1,0 +1,107 @@
+$accumulator, $addToSet, $avg, $first, $last, $max, $mergeObjects, $min, $push, $stdDevPop, $stdDevSamp, $sum
+
+$accumulator
+------------
+ Used for custom accumulation function. Init and final function defines the initial and final state of the function.
+
+$avg
+-------
+	 - Returns an average of numerical values. Ignores non-numeric values, including missing values. If all of the operands for the average are non-numeric, $avg returns null since the average of zero values is undefined.
+
+{ $avg: <expression> }
+{ $avg: [ <expression1>, <expression2> ... ]  }
+
+In the $group stage, if the expression resolves to an array, $avg treats the operand as a non-numerical value.
+
+In other supported stages
+	- With a single expression as its operand, if the expression resolves to an array, $avg traverses into the array to operate on the numerical elements of the array to return a single value.
+	- With a list of expressions as its operand, if any of the expressions resolves to an array, $avg does not traverse into the array but instead treats the array as a non-numerical value.
+
+$first (and $last)
+--------------
+Returns the value that results from applying an expression to the first (or last) document in a group of documents that share the same group by key. Only meaningful when documents are in a defined order.
+
+$first and $last is only available in the $group stage.
+
+{ $first: <expression> }
+{ $last: <expression> }
+
+When using in a $group stage, the output value depends on the order of the documents coming into pipeline. To guarantee a defined order, the $group pipeline stage should follow a $sort stage.
+
+$max
+--------
+Returns the highest expression value for each group.
+{ $max: <expression> }
+{ $max: [ <expression1>, <expression2> ... ]  }
+
+If some, but not all, documents for the $max operation have either a null value for the field or are missing the field, the $max operator only considers the non-null and the non-missing values for the field.
+
+If all documents for the $max operation have null value for the field or are missing the field, the $max operator returns null for the maximum value.
+
+In the $group stage, if the expression resolves to an array, $max does not traverse the array and compares the array as a whole.
+
+In the other supported stages:
+
+	- With a single expression as its operand, if the expression resolves to an array, $max traverses into the array to operate on the numerical elements of the array to return a single value.
+	- With a list of expressions as its operand, if any of the expressions resolves to an array, $max does not traverse into the array but instead treats the array as a non-numerical value.
+
+$mergeObjects
+---------------
+Combines multiple documents into a single document.
+
+When used as a $group stage accumulator, $mergeObjects has the following form:
+
+{ $mergeObjects: <document> } 
+
+When used in other expressions, including in the $group stage but not as an accumulator:
+
+{ $mergeObjects: [ <document1>, <document2>, ... ] }
+
+$mergeObjects ignores null operands. If all the operands to $mergeObjects resolves to null, $mergeObjects returns an empty document { }.
+
+$mergeObjects overwrites the field values as it merges the documents. If documents to merge include the same field name, the field, in the resulting document, has the value from the last document merged for the field.
+
+When used as an accumulator, $mergeObjects operator accepts a single operand.
+
+If the documents to merge include the same field name, the field in the resulting document has the value from the last document merged for the field.
+
+$min
+----------
+Same as $max for lowest value in a expression
+
+$push
+--------
+Returns an array of all values that result from applying an expression to each document in a group of documents that share the same group by key.
+
+$push is only available in the $group stage.
+
+{ $push: <expression> }
+
+When using $push in a $group stage, the order of the documents in the output array is determined by the order of the documents coming into pipeline. To guarantee a defined order, the $group pipeline stage should follow a $sort stage.
+
+$stdDevPop
+------------
+Calculates the population standard deviation of the input values. Use if the values encompass the entire population of data you want to represent and do not wish to generalize about a larger population. $stdDevPop ignores non-numeric values.
+
+If the values represent only a sample of a population of data from which to generalize about the population, use $stdDevSamp instead.
+
+{ $stdDevPop: <expression> }
+
+{ $stdDevPop: [ <expression1>, <expression2> ... ]  }
+
+If all operands for a $stdDevPop are non-numeric, $stdDevPop returns null.
+
+If the sample consists of a single numeric value, $stdDevPop returns 0.
+
+In the $group stage, if the expression resolves to an array, $stdDevPop treats the operand as a non-numerical value.
+
+In the other supported stages:
+
+	-With a single expression as its operand, if the expression resolves to an array, $stdDevPop traverses into the array to operate on the numerical elements of the array to return a single value.
+	- With a list of expressions as its operand, if any of the expressions resolves to an array, $stdDevPop does not traverse into the array but instead treats the array as a non-numerical value.
+
+$stdDevSamp
+----------------
+Calculates the sample standard deviation of the input values. Use if the values encompass a sample of a population of data from which to generalize about the population. $stdDevSamp ignores non-numeric values.
+
+$sum

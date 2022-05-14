@@ -1,0 +1,25 @@
+Model Relationship with Document
+-------------------------------------
+Model Relationships with Embed Documents
+-----------------------------------------
+	One-to-One Relationships - 
+		- Embedded Document Pattern - Embed documents instead of referencing.
+		- Subset Pattern - Embed a subset of document only. Rest of the details will be referencing. Most frequently accessed data should go into subset document.
+	
+	Examples: Movie collection with most frequenly accessed details. Details not frequently accessed in a separate collection.
+
+		One-to-Many Relationships - Embed documents when Many is not large.
+		- Embedded Document Pattern - Ex: multiple addresses for a person collection.
+		- Subset Pattern 
+			- Movies collection with top-ten reviews. Rest of the reviews in a separate collection.
+			- Comments on a blog post, when you only want to show the most recent or highest-rated comments by default.
+			- Cast members in a movie, when you only want to show cast members with the largest roles by default.
+
+
+Model Relationships with Document References
+-----------------------------------------------
+	One-to-Many Relationships - Reference document when Many is unbounded.
+		Pattern - Ex: books and publisher collection. 
+			- Embedding the publisher document inside the book document would lead to repetition of the publisher data.
+			- If books per publisher is small with limited growth, storing the book reference inside the publisher document may sometimes be useful. 
+			- Otherwise, if the number of books per publisher is unbounded, this data model would lead to mutable, growing arrays. To avoid, store the publisher reference inside the book document.

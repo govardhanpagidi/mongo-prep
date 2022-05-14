@@ -1,0 +1,58 @@
+Multikey Indexes
+------------------
+To index a field that holds an array value, MongoDB creates an index key for each element in the array. These multikey indexes support efficient queries against array fields. Multikey indexes can be constructed over arrays that hold both scalar values [1] (e.g. strings, numbers) and nested documents.
+
+Starting in MongoDB 3.4, for multikey indexes created using MongoDB 3.4 or later, MongoDB keeps track of which indexed field or fields cause an index to be a multikey index. Tracking this information allows the MongoDB query engine to use tighter index bounds.
+
+If an index is multikey, then computation of the index bounds follows special rules. For details on multikey index bounds, see Multikey Index Bounds.
+
+Unique Multikey index 
+----------------------	
+- Applies to separate documents in the collection rather than within a single document.
+
+Because the unique constraint applies to separate documents, for a unique multikey index, a document may have array elements that result in repeating index key values as long as the index key values for that document do not duplicate those of another document.
+
+Limitations
+---------------------------
+For a compound multikey index, each indexed document can have at most one indexed field whose value is an array. That is:
+	- You cannot create a compound multikey index if more than one to-be-indexed field of a document is an array. 
+	{ _id: 1, a: [ 1, 2 ], b: [ 1, 2 ], category: "AB - both arrays" }
+	You cannot create a compound multikey index { a: 1, b: 1 } on the collection.
+
+	- Or, if a compound multikey index already exists, you cannot insert a document that would violate this restriction.
+	{ _id: 1, a: [1, 2], b: 1, category: "A array" }
+	{ _id: 2, a: 1, b: [1, 2], category: "B array" }
+	A compound multikey index { a: 1, b: 1 } is permissible but after creation, you cannot insert a document which has both a and b fields as arrays.
+
+	- If a field is an array of documents, you can index the embedded fields to create a compound index. The restriction where at most one indexed field can be an array also applies.
+
+Sorting - As a result of changes to sorting behavior on array fields in MongoDB 3.6, when sorting on an array indexed with a multikey index the query plan includes a blocking SORT stage. The new sorting behavior may negatively impact performance.
+
+Shard Keys - You cannot specify a multikey index as the shard key index. However, if the shard key index is a prefix of a compound index, the compound index is allowed to become a compound multikey index if one of the other keys (i.e. keys that are not part of the shard key) indexes an array. Compound multikey indexes can have an impact on performance.
+
+Hashed indexes cannot be multikey.
+
+Multikey indexes cannot cover queries over array field(s). However, starting in 3.6, multikey indexes can cover queries over the non-array fields if the index tracks which field or fields cause the index to be multikey. Multikey indexes created in MongoDB 3.4 or later on storage engines other than MMAPv1 [2] track this data.
+
+$expr does not support multikey indexes.
+
+When a query filter specifies an exact match for an array as a whole, MongoDB can use the multikey index to look up the first element of the query array but cannot use the multikey index scan to find the whole array. Instead, after using the multikey index to look up the first element of the query array, MongoDB retrieves the associated documents and filters for documents whose array matches the array in the query.
+
+Multikey Index Bounds
+-------------------------
+The bounds of an index scan define the portions of an index to search during a query. When multiple predicates over an index exist, MongoDB will attempt to combine the bounds for these predicates, by either intersection or compounding, in order to produce a scan with smaller bounds.
+
+Intersect Bounds for Multikey Index 
+	- Bounds intersection refers to a logical conjunction (i.e. AND) of multiple bounds. For instance, given two bounds [ [ 3, Infinity ] ] and [ [ -Infinity, 6 ] ], the intersection of the bounds results in [ [ 3, 6 ] ].
+	- Given an indexed array field, consider a query that specifies multiple predicates on the array and can use a multikey index. MongoDB can intersect multikey index bounds if an $elemMatch joins the predicates.
+	- If the query does not join the conditions on the array field with $elemMatch, MongoDB cannot intersect the multikey index bounds.
+
+Compound Bounds for Multikey Index
+	- Compounding bounds refers to using bounds for multiple keys of compound index.
+	- For instance, given a compound index { a: 1, b: 1 } with bounds on field a of [ [ 3, Infinity ] ] and bounds on field b of [ [ -Infinity, 6 ] ], compounding the bounds results in the use of both bounds:
+	{ a: [ [ 3, Infinity ] ], b: [ [ -Infinity, 6 ] ] }
+	- If MongoDB cannot compound the two bounds, MongoDB always constrains the index scan by the bound on its leading field, in this case, a: [ [ 3, Infinity ] ].
+	- To compound together the bounds for index keys from the same array:
+		- the index keys must share the same field path up to but excluding the field names, and
+		- the query must specify predicates on the fields using $elemMatch on that path.
+	- If the query does not join the conditions on the indexed array fields with $elemMatch, MongoDB cannot compound their bounds. If the query does not specify $elemMatch on the path of the embedded fields, up to but excluding the field names, MongoDB cannot compound the bounds of index keys from the same array.	

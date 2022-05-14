@@ -1,0 +1,36 @@
+Type of Benchmarking
+	- built for relational databases
+	Low level benchmarking - Sysbench, iibench
+	DB server benchmarking - YCSB, TPC
+	Distributed systems benchmarking - Jepsen, HiBench
+
+POCDriver - johnlpage
+Benchmarking conditions - Hardware, Clients, Load
+Benchmarking Anti-patterns
+
+Covered Queries
+	- Equality, Sort & Range - Ordering of indexes
+	- Excluding any fields other than _id will omit indexes in covered queries
+	- Does not apply when indexed fields are arrays or embedded documents
+	- Does not apply when run against a mongos if the index does not contain the shard key
+	- Multi-key indexes can cover queries over non-array fields. Multikey indexes cannot cover queries over array fields.
+
+Aggregate
+	- 16MB limit for final results that returned
+	- use $limit and $project
+	- 100MB limit for each stage in pipeline
+	- use indexes in each stage
+	- use allowDiskUse: true in aggregation query (last resort measure). Doesnt work with $graphLookup
+
+var exp = db.restaurants.explain("executionStats");
+
+exp.aggregate([
+  { $match: { stars: { $gt: 2 } } },
+  { $sort: { stars: 1 } },
+  { $group: { _id: "$cuisine", count: { $sum: 1 } } }
+])
+
+db.restaurants.createIndex( { stars: 1 } )
+db.restaurants.createIndex( { stars: 1, cuisine: 1 } )
+db.restaurants.createIndex( { cuisine: 1,stars: 1 } )
+

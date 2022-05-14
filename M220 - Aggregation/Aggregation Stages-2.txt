@@ -1,0 +1,112 @@
+$facet
+$geoNear
+$graphLookup
+$group
+$indexStats
+
+$facet
+-------------
+Processes multiple aggregation pipelines within a single stage on the same set of input documents. Each sub-pipeline has its own field in the output document where its results are stored as an array of document
+
+The $facet stage allows you to create multi-faceted aggregations which characterize data across multiple dimensions, or facets, within a single aggregation stage.
+
+Multi-faceted aggregations provide multiple filters and categorizations to guide data browsing and analysis. Retailers commonly use faceting to narrow search results by creating filters on product price, manufacturer, size, etc.
+
+Input documents are passed to the $facet stage only once. $facet enables various aggregations on the same set of input documents, without needing to retrieve the input documents multiple times.
+
+
+{ $facet:
+   {
+      <outputField1>: [ <stage1>, <stage2>, ... ],
+      <outputField2>: [ <stage1>, <stage2>, ... ],
+      ...
+
+   }
+}
+
+Specify any of the following facet-related stages within different $facet sub-pipeline's <stage> to perform a multi-faceted aggregation - $bucket, $bucketAuto, $sortByCount
+
+Other aggregation stages can also be used with $facet except - $collStats, $facet, $geoNear, $indexStats, $out, $merge, $planCacheStats
+
+Each sub-pipeline within $facet is passed the exact same set of input documents. These sub-pipelines are completely independent of one another and the document array output by each is stored in separate fields in the output document. The output of one sub-pipeline can not be used as the input for a different sub-pipeline within the same $facet stage. If further aggregations are required, add additional stages after $facet and specify the field name, <outputField>, of the desired sub-pipeline output.
+
+The $facet stage, and its sub-pipelines, cannot make use of indexes, even if its sub-pipelines use $match or if $facet is the first stage in the pipeline. The $facet stage will always perform a COLLSCAN during execution.
+
+$graphLookup
+-------------
+Performs a recursive search on a collection, with options for restricting the search by recursion depth and query filter.
+
+To each output document, adds a new array field that contains the traversal results of the recursive search for that document.
+
+{
+   $graphLookup: {
+      from: <collection>,
+      startWith: <expression>,
+      connectFromField: <string>,
+      connectToField: <string>,
+      as: <string>,
+      maxDepth: <number>,
+      depthField: <string>,
+      restrictSearchWithMatch: <document>
+   }
+}
+
+from - cannot be sharded collection however the collection on which the aggregate() method is run can be sharded.
+startWith - Expression
+maxDepth - Non-negative integral number specifying the maximum recursion depth
+depthField - Recursion depth to add to each traversed document
+Documents returned in the as field are not guaranteed to be in any order.
+restrictSearchWithMatch - Specifies additional conditions for the recursive search. Similar to query syntax. You cannot use any aggregation expression in this filter. For eaxmple, { lastName: { $ne: "$lastName" } }
+
+Considerations :
+	- fromCollection cannot be sharded collection however the collection on which the aggregate() method is run can be sharded
+	- Setting the maxDepth field to 0 is equivalent to a non-recursive $graphLookup search stage.
+	- Must be within 100MB memory limit. If allowDisk: true is specified, the graphLookup ignores the option. If there are other stages in the aggregate() operation, allowDiskUse: true option is in effect for these other stages.
+	- If performing an aggregation that involves multiple views, such as with $lookup or $graphLookup, the views must have the same collation.
+
+$group
+----------
+Groups input documents by the specified _id expression and for each distinct grouping, outputs a document. The _id field of each output document contains the unique group by value. The output documents can also contain computed fields that hold the values of some accumulator expression.
+
+$group does not order its output documents.
+
+{
+  $group:
+    {
+      _id: <expression>, // Group By Expression
+      <field1>: { <accumulator1> : <expression1> },
+      ...
+    }
+ }
+
+accumulator operators - $accumulator, $addToSet, $avg, $first, $last, $max, $mergeObjects, $min, $push, $stdDevPop, $stdDevSamp, $sum
+
+Restrictions - Size limit of 100 MB by RAM. Use allowDisk: true to enable writing to temporary disk files.
+
+If a pipeline sorts and groups by the same field and the $group stage only uses the $first accumulator operator, consider adding an index on the grouped field which matches the sort order. In some cases, the $group stage can use the index to quickly find the first document of each group.
+
+$indexStats
+-------------
+Returns statistics regarding the use of each index for the collection. If running with access control, the user must have privileges that include indexStats action.
+
+{ $indexStats: { } }
+
+Returns -
+name - name of the index
+key - Index key spec
+host - hostname & port
+accesses - ops - no of operations that used the index
+	- since - Time from which mongodb gathered the statistics.
+
+shard - name of the shard associated with the host.
+spec - Full specification document for the index
+building - true if the index is currently being built
+
+Statistics for an index will be reset on mongod restart or index drop and recreation.
+
+The statistics reported by the accesses field only includes index access driven by user requests. It does not include internal operations like deletion via TTL Indexes or chunk split and migration operations.
+
+$indexStats must be the first stage in an aggregation pipeline.
+$indexStats is not allowed in transactions.
+
+Modification of an existing index (see collMod command) resets the statistics for that index.

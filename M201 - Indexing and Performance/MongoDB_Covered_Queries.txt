@@ -1,0 +1,19 @@
+Covered Queries
+	A covered query is a query that can be satisfied entirely using an index and does not have to examine any documents. An index covers a query when all of the following apply:
+	- all the fields in the query are part of an index, and
+	- all the fields returned in the results are in the same index.
+	- no fields in the query are equal to null (i.e. {"field" : null} or {"field" : {$eq : null}} ).
+
+	
+	- Excluding any fields other than _id will omit indexes and need to fetch documents. ie.cannot be covered queries
+	- Does not apply when indexed fields are arrays or embedded documents
+	- Does not apply when run against a mongos if the index does not contain the shard key
+	- Multi-key indexes can cover queries over non-array fields. Multikey indexes cannot cover queries over array fields.
+	- an index cannot cover a query on a sharded collection when run against a mongos if the index does not contain the shard key, with the following exception for the _id index:
+	- If a query on a sharded collection only specifies a condition on the _id field and returns only the _id field, the _id index can cover the query when run against a mongos even if the _id field is not the shard key.
+	
+Querying only the index can be much faster than querying documents outside of the index. Index keys are typically smaller than the documents they catalog, and indexes are typically available in RAM or located sequentially on disk.
+
+Changed in version 3.6: An index can cover a query on fields within embedded documents. [2]
+
+To index fields in embedded documents, use dot notation.

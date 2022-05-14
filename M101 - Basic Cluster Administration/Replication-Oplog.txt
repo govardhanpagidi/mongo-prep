@@ -1,0 +1,76 @@
+Replica Set Oplog
+---------------------
+The oplog (operations log) is a special capped collection that keeps a rolling record of all operations that modify the data stored in your databases.
+
+Starting in MongoDB 4.0, unlike other capped collections, the oplog can grow past its configured size limit to avoid deleting the majority commit point.
+
+All replica set members contain a copy of the oplog, in the local.oplog.rs collection, which allows them to maintain the current state of the database.
+
+To facilitate replication, all replica set members send heartbeats (pings) to all other members. Any secondary member can import oplog entries from any other member.
+
+Each operation in the oplog is idempotent. That is, oplog operations produce the same results whether applied once or multiple times to the target dataset.
+
+Oplog Size
+-------------------
+When you start a replica set member for the first time, MongoDB creates an oplog of a default size if you do not specify the oplog size.
+
+For Unix & Windows
+	- In-mem storage engine - 5% of physical memory is default oplog size. Lower bound 50 MB and upper bound is 50GB
+	- WiredTiger - 5% of free disk space. Lower bound is 990MB and upper bound is 50GB.
+
+For 64-bit macOS
+	- Default oplog size is 192MB of physical memory for In-Mem Storage Engine and 192MB of free disk space for WiredTiger Storage Engine
+
+
+In most cases, the default oplog size is sufficient. 
+
+Before mongod creates an oplog, you can specify its size with the oplogSizeMB option.
+
+Once you have started a replica set member for the first time, use the replSetResizeOplog administrative command to change the oplog size.
+replSetResizeOplog enables you to resize the oplog dynamically without restarting the mongod process.
+
+Oplog Minimum Retention Period
+----------------------------------------
+MongoDB 4.4 supports specifying a minimum oplog retention period in hours, where MongoDB only removes an oplog entry if:
+	- The oplog has reached the maximum configured size, and
+	- The oplog entry is older than the configured number of hours based on the host system clock
+
+By default MongoDB does not set a minimum oplog retention period and automatically truncates the oplog starting with the oldest entries to maintain the configured maximum oplog size. To set minimum oplog retention period add storage.oplogMinRetentionHours setting to mongod config file or add --oplogMinRetentionHours command line option.
+
+To configure the minimum oplog retention period on a running mongod, use replSetResizeOplog.
+
+Workloads that migh require a larger oplog size
+--------------------------------------------------
+If you can predict your replica set's workload to resemble one of the following patterns, then you might want to create an oplog that is larger than the default. Conversely, if your application predominantly performs reads with a minimal amount of write operations, a smaller oplog may be sufficient.
+
+	1. Updates to Multiple Documents at once - oplog must translate multi-updates to individual operations to maintain idempotency. This can use a great deal of oplog space without a corresponding increase in data size or disk use.
+	2. Deletions Equal the same Amount of data as inserts - If you delete roughly the same amount of data as you insert, the database will not grow significantly in disk use, but the size of the operation log can be quite large.
+	3. Significant Number of In-Place Updates - If a significant portion of the workload is updates that do not increase the size of the documents, the database records a large number of operations but does not change the quantity of data on disk.
+
+To view oplog status, including the size and the time range of operations, issue the rs.printReplicationInfo() method.
+
+Replication Lag
+----------------
+Delay between an operation on the primary and the application of that operation from the oplog to the secondary.
+
+Causes - 
+	Network Latency - use ping or traceroute for packet loss or network routing issues.
+	Disk Throughput - Use iostat or vmstat to assess disk status
+	Concurrency - Due to long-running operations. use write concern to prevent or database profiler to check for slow-queries or long-running operations.
+	Appropriate Write Concern - Due to large or bulk data ingestion with w:0. To prevent this, request write acknowledgement after every 100 or 1000 entries or so.
+
+Flow Control
+----------------
+Administrators can limit the rate at which the primary applies its writes with the goal of keeping the majority committed lag under a configurable maximum value flowControlTargetLagSeconds. Default of flowControlTargetLagSeconds is 10.
+
+By default, flow control is enabled.
+
+With flow control enabled, as the lag grows close to the flowControlTargetLagSeconds, writes on the primary must obtain tickets before taking locks to apply writes. By limiting the number of tickets issued per second, the flow control mechanism attempts to keep the the lag under the target.
+
+oplog collection behavior
+------------------------------
+You cannot drop the local.oplog.rs collection from any standalone or replica set member if your deployment uses WiredTiger storage engine.
+
+mongod uses oplog for both replication and recovery of a node if the node goes down.
+
+No manual write operations are allowed to the oplog on a cluster running as a replica set. On standalone, manual write operations should only be done with guidance from MongoDB support.

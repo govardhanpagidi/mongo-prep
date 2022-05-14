@@ -1,0 +1,148 @@
+Replica Set Sync
+-------------------
+MongoDB uses 2 forms of data synchronization:
+	1. Initial sync to populate members with full data set
+	2. replication to apply ongoing changes to the entire data set.
+
+Initial Sync
+-------------------
+Initial sync copies all the data from one member of the replica set to another member. 
+
+You can specify the preferred initial sync source using the initialSyncSourceReadPreference parameter. This parameter can only be specified when starting the mongod.
+
+initialSyncSourceReadPreference:
+--------------------------------
+	- can be primary, primaryPreferred,secondary, secondaryPreferred or nearest.
+	- Default is primary if the replica set has disabled chaining
+	- You cannot specify a tag set or maxStalenessSeconds to initialSyncSourceReadPreference.
+	- If the mongod cannot find a sync source based on the specified read preference, it logs an error and restarts the initial sync process. 
+	- The mongod exits with an error if it cannot complete the initial sync process after 10 attempts.
+	- initialSyncSourceReadPreference takes precedence over the replica set's settings.chainingAllowed setting when selecting an initial sync source.
+	- After a replica set member successfully completes initial sync, it defers to the value of chainingAllowed when selecting a replication sync source.
+	- You can only set this parameter on startup, using either the setParameter configuration file setting or the --setParameter command line option.
+
+settings.chainingAllowed - When set to true, replica set allows secondaries to replicate from other secondary members. When set to false, secondaries can only replicate from the primary. Default is true. 
+
+Initial Sync Source Selection
+------------------------------------
+	Depends on the value of initialSyncSourceReadPreference parameter. 
+	- If primary (default if chaining is disabled), selects the primary as the sync source. If primary is unavailable or unreachable, log an error and periodically check for primary availability.
+	- If primaryPreferred (default for voting replica set members), attempt to select the primary as the sync source. If the primary is unavailable or unreachable, perform sync source selection from the remaining replica set members.
+	- For all other supported read modes, perform sync source selection from the replica set members.
+
+Members performing initial sync source selection make two passes through the list of all replica set members:
+First Pass:
+-------------
+	- Sync source must be in the primary or secondary replication state.	
+	- Sync source must be online and reachable.
+	- If initialSyncSourceReadPreference is secondary or secondaryPreferred, the sync source must be a secondary.
+	- The sync source must be visible.
+	- The sync source must be within 30 seconds of the newest oplog entry on the primary.
+	- If the member builds indexes, the sync source must build indexes.
+	- If the member votes in replica set elections, the sync source must also vote.
+	- If the member is not a delayed member, the sync source must not be delayed.
+	- If the member is a delayed member, the sync source must have a shorter configured delay.
+	- The sync source must be faster (i.e. lower latency) than the current best sync source.
+
+If no candidate sync sources remain after the first pass, the member performs a second pass with relaxed criteria. 	
+Second Pass:
+--------------
+	- The sync source must be in the PRIMARY or SECONDARY replication state.
+	- The sync source must be online and reachable.
+	- If initialSyncSourceReadPreference is secondary, the sync source must be a secondary.
+	- If the member builds indexes, the sync source must build indexes.
+	- The sync source must be faster (i.e. lower latency) than the current best sync source.
+
+If the member cannot select an initial sync source after two passes, it logs an error and waits 1 second before restarting the selection process. The secondary mongod can restart the initial sync source selection process up to 10 times before exiting with an error.
+
+Initial Sync Process:
+------------------------
+When you perform an initial sync, MongoDB:
+	1. Clones all databases except the local database. To clone, the mongod scans every collection in each source database and inserts all data into its own copies of these collections.
+	- Starting 3.4, Initial sync builds all collection indexes as the documents are copied for each collection. In earlier versions of MongoDB, only the _id indexes are built during this stage.
+	- Starting 3.4, Initial sync pulls newly added oplog records during the data copy. Ensure that the target member has enough disk space in the local database to temporarily store these oplog records for the duration of this data copy stage.
+	2. Applies all changes to the data set. Using the oplog from the source, the mongod updates its data set to reflect the current state of the replica set.
+
+When the initial sync finishes, the member transitions from STARTUP2 to SECONDARY.
+
+To perform an initial sync, see Resync a Member of a Replica Set.
+
+Fault Tolerance
+----------------
+If a secondary performing initial sync encounters a non-transient (i.e. persistent) network error during the sync process, the secondary restarts the initial sync process from the beginning.
+
+Starting in MongoDB 4.4, a secondary performing initial sync can attempt to resume the sync process if interrupted by a transient (i.e. temporary) network error, collection drop, or collection rename. The sync source must also run MongoDB 4.4 to support resumable initial sync. If the sync source runs MongoDB 4.2 or earlier, the secondary must restart the initial sync process as if it encountered a non-transient network error.
+
+By default, the secondary tries to resume initial sync for 24 hours. MongoDB 4.4 adds the initialSyncTransientErrorRetryPeriodSeconds server parameter for controlling the amount of time the secondary attempts to resume initial sync. If the secondary cannot successfully resume the initial sync process during the configured time period, it selects a new healthy source from the replica set and restarts the initial synchronization process from the beginning.
+
+The secondary attempts to restart the initial sync up to 10 times before returning a fatal error.
+
+Resync a member of a Replica Set
+---------------------------------
+A replica set member becomes "stale" when its replication process falls so far behind that the primary overwrites oplog entries the member has not yet replicated. The member cannot catch up and becomes "stale.
+
+When this occurs, you must completely resynchronize the member by removing its data and performing an initial sync.
+
+When syncing a member, choose a time when the system has the bandwidth to move a large amount of data. Schedule the synchronization during a time of low usage or during a maintenance window.
+
+MongoDB provides two options for performing an initial sync:
+	- Automatic - Restart the mongod with an empty data directory and let MongoDB's normal initial syncing feature restore the data. This is the more simple option but may take longer to replace the data.
+	- Manual - Restart the machine with a copy of a recent data directory from another member in the replica set. This procedure can replace the data more quickly but requires more manual steps.
+
+Auomatically Sync a Member
+-----------------------------
+	- During initial sync, mongod removes the contents of the dbPath directory.
+	- This procedure relies on MongoDB's regular process for Replica Set Syncing. This stores the current data on the member.
+	- Initial sync operations can impact the other members of the set and create additional traffic to the primary. The syncing member requires another member of the set that is accessible and up to date.
+	- If the instance has no data, you can follow the Add Members to a Replica Set or Replace a Replica Set Member procedure to add a new member to a replica set.
+	- You can also force a mongod that is already a member of the set to perform an initial sync by restarting the instance without the contents of the dbPath directory:
+		- Stop the member's mongod instance. To ensure a clean shutdown, use the db.shutdownServer() method from the mongo shell or on Linux systems, the mongod --shutdown option.
+		- Make a backup of all data and sub-directories from the member's dbPath directory. If a full backup is not required, consider backing up just the diagnostic.data directory to preserve potentially useful troubleshooting data in the event of an issue.
+		- Delete all and sub-directories from the member's dbPath directory.
+		- Start the mongod process, specifying replication options as appropriate.
+	At this point, the mongod performs an initial sync. The length of the initial sync process depends on the size of the database and the network latency between members of the replica set.
+
+Sync by copying data files from another member
+----------------------------------------------
+	- This approach "seeds" a new or stale member using the data files from an existing member of the replica set. The data files must be sufficiently recent to allow the new member to catch up with the oplog. Otherwise the member would need to perform an initial sync.
+	- You can capture the data files as either a snapshot or a direct copy. However, in most cases you cannot copy data files from a running mongod instance to another because the data files will change during the file copy operation.
+	- If copying data files, ensure that your copy includes the content of the local database.
+	- You cannot use a mongodump backup for the data files: only a snapshot backup. For approaches to capturing a consistent snapshot of a running mongod instance, see the MongoDB Backup Methods documentation.
+	- After you have copied the data files from the "seed" source, start the mongod instance and allow it to apply all operations from the oplog until it reflects the current state of the replica set.
+
+Replication
+-----------------
+Secondary members replicate data continuously after the initial sync. Secondary members copy the oplog from their sync from source and apply these operations in an asynchronous process.
+
+Secondaries may automatically change their sync from source as needed based on changes in the ping time and state of other members' replication. 
+
+Replication Sync Source Selection
+-----------------------------------
+	- Depends on chaining setting:
+		- With chaining enabled (default), perform sync source selection from the replica set members.
+		- With chaining disabled, select primary as the sync source. If the primary is unavailable or unreachable, log an error and periodically check for primary availability.	
+
+Members performing replication sync source selection make two passes through the list of all replica set members:
+
+First Pass & Second Pass process - Same as for initial sync
+
+If the member cannot select a sync source after two passes, it logs an error and waits 1 second before restarting the selection process.
+
+Streaming Replication
+---------------------
+Starting in MongoDB 4.4, sync from sources send a continuous stream of oplog entries to their syncing secondaries. 
+
+Streaming replication mitigates replication lag in high-load and high-latency networks. It also:
+
+	- Reduces staleness for reads from secondaries.
+	- Reduces risk of losing write operations with w: 1 due to primary failover.
+	- Reduces latency on write operations with w: "majority" and w: >1 (that is, any write concern that requires waiting for replication).
+
+Prior to MongoDB 4.4, secondaries fetched batches of oplog entries by issuing a request to their sync from source and waiting for a response. This required a network roundtrip for each batch of oplog entries. MongoDB 4.4 adds the oplogFetcherUsesExhaust startup parameter for disabling streaming replication and using the older replication behavior. Set the oplogFetcherUsesExhaust parameter to false only if there are any resource constraints on the sync from source or if you wish to limit MongoDB's usage of network bandwidth for replication.
+
+Multithreaded Replication
+-------------------------------
+MongoDB applies write operations in batches using multiple threads to improve concurrency. MongoDB groups batches by document id (WiredTiger) and simultaneously applies each group of operations using a different thread. MongoDB always applies write operations to a given document in their original write order.
+
+Starting in MongoDB 4.0, read operations that target secondaries and are configured with a read concern level of "local" or "majority" will now read from a WiredTiger snapshot of the data if the read takes place on a secondary where replication batches are being applied. Reading from a snapshot guarantees a consistent view of the data, and allows the read to occur simultaneously with the ongoing replication without the need for a lock. As a result, secondary reads requiring these read concern levels no longer need to wait for replication batches to be applied, and can be handled as they are received.
+

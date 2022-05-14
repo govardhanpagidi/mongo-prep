@@ -1,0 +1,65 @@
+A MongoDB view is a queryable object whose contents are defined by an aggregation pipeline on other collections or views. 
+
+MongoDB does not persist the view contents to disk. 
+
+A view's content is computed on-demand when a client queries the view. MongoDB can require clients to have permission to query the view. MongoDB does not support write operations against views.
+
+Examples of a view:
+	- Create a view on employee collection to exclude any PII data.
+	- Create a view on collected sensor data to add computed fields and metrics
+	- Create a view that joins two collections
+
+When clients query a view, MongoDB appends the client query to the underlying pipeline and returns the results of that combined pipeline to the client. MongoDB may apply aggregation pipeline optimizations to the combined pipeline.
+
+Use db.createCollection() or db.createView() to create a view.
+
+db.createCollection(
+  "<viewName>",
+  {
+    "viewOn" : "<source>",
+    "pipeline" : [<pipeline>],
+    "collation" : { <collation> }
+  }
+)
+
+db.createView(
+  "<viewName>",
+  "<source>",
+  [<pipeline>],
+  {
+    "collation" : { <collation> }
+  }
+)
+
+You must create views in the same database as the source collection.
+View definition pipeline cannot include the $out or $merge stages
+Views are read-only. Write operations will error.
+
+Views support these read operations - find(), findOne(), aggregate(), countDocuments(), estimatedDocumentCount(), count(), distinct()
+
+Views use the indexes of the underlying collection. Views cannot get, create, drop or re-build indexes.
+
+$natural sort order is supported on views.
+
+view's underlying aggregate pipeline is subject to 100MB memory limit for blocking sort and group operations.
+
+find() on views does not support the following projection operators - $, $slice, $elemMatch and $meta.
+
+You cannot rename views.
+
+Views are computed on-demand during read operations  and MongoDB executes read operations on views as part of the underlying aggregation pipeline. As such, Views do not support operations such as - mapReduce(), $text, $geoNear as these must the 1st stage in the pipeline.
+
+If the aggregation pipeline used to create the view suppresses the _id field, documents in the view do not have the _id field.
+
+Views are considered sharded if the underlying collection is sharded. As such, you cannot specify the sharded view for the from field in $lookup and $graphLookup operations.
+
+Views and Collation
+------------------------
+	- You can specify a default collation for a view at creation time. If no collation is specified, the view's default collation is the "simple" binary comparison collator. That is, the view does not inherit the collection's default collation.
+	- String comparisons on the view use the view's default collation. An operation that attempts to change or override a view's default collation will fail with an error.
+	- If creating a view from another view, you cannot specify a collation that differs from the source view's collation.
+	- If performing an aggregation that involves multiple views, such as with $lookup or $graphLookup, the views must have the same collation.
+
+On-Demand Materialized Views
+------------------------------
+Starting in version 4.2, MongoDB adds the $merge stage for the aggregation pipeline. This stage can merge the pipeline results to an existing collection instead of completely replacing the collection. This functionality allows users to create on-demand materialized views, where the content of the output collection can be updated each time the pipeline is run.

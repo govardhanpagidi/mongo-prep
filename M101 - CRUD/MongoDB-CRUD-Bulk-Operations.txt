@@ -1,0 +1,64 @@
+Bulk Operations
+----------------
+
+Bulk()
+	- ordered or unordered
+	- Ordered:
+		- Serial execution of operations in the given order.
+		- If an error occurs, MongoDB will return without processing any remaining write operations.
+		- Groups by operation type and contiguity. 
+		- For example, if an ordered list has two insert operations followed by an update operation followed by another insert operation, MongoDB groups the operations into three separate groups: first group contains the two insert operations, second group contains the update operation, and the third group contains the last insert operation.
+		- Each group of operations can have at most 1000 operations. If a group exceeds this limit, MongoDB will divide the group into smaller groups of 1000 or less. 
+		- For example, if the bulk operations list consists of 2000 insert operations, MongoDB creates 2 groups, each with 1000 operations. 
+	- Unordered:
+		- Parallel execution of operations in a non-deterministic order.
+		- If an error occurs, MongoDB will continue to process remaining write operations.
+		- Grouping of operations is done by MongoDB to increase performance.
+		- Each group of operations can have at most 1000 operations. If a group exceeds this limit, MongoDB will divide the group into smaller groups of 1000 or less. 
+		- For example, if the bulk operations list consists of 2000 insert operations, MongoDB creates 2 groups, each with 1000 operations. 
+	- can be used in multi-document transactions.
+	- Collections must already exist for insert and upsert if the operation results in an upsert.
+
+Bulk.insert()
+-------------
+	- Adds an insert operation to a list of operations.
+var bulk = db.items.initializeUnorderedBulkOp();
+bulk.insert( { item: "abc123", defaultQty: 100, status: "A", points: 100 } );
+bulk.insert( { item: "ijk123", defaultQty: 200, status: "A", points: 200 } );
+bulk.insert( { item: "mop123", defaultQty: 0, status: "P", points: 0 } );
+bulk.execute();
+
+Bulk.find()
+-----------
+	- Accepts query parameter for update or remove operation. use empty document {} to specify all documents.
+	- With update or remove operations, the sum of the query document and the update document must be less than or equal to maximum BSON document size (ie. 16 MB)
+
+Bulk.find().removeOne() - Removes a single document
+Bulk.find().remove() - Removes multiple documents
+Bulk.find().replaceOne() - Adds a single replacement document
+Bulk.find().upsert() - Sets the upsert option to true for an  update or replacement operation. 
+	- Bulk.find(<query>).upsert().update(<update>);
+	- Bulk.find(<query>).upsert().updateOne(<update>);
+	- Bulk.find(<query>).upsert().replaceOne(<replacement>);
+
+Bulk.find.updateOne()
+---------------------
+	- Updates a single document.
+	- for upsert: true option, use with Bulk.find.upsert()
+	- For arrayFilters to update specific array elements, use with Bulk.find.arrayFilters()
+	- To specify the index to use for the associated Bulk.find(), see Bulk.find.hint().
+	- To replace a document wholesale, see also Bulk.find.replaceOne().
+
+
+Bulk.getOperations()
+--------------------
+	- returns an array of write operations executed through Bulk.execute().
+	- Only use Bulk.getOperations() after a Bulk.execute(). Otherwise, incomplete list may get returned.
+	- originalZeroIndex specifies the order in which the operation was added to the bulk operations builder, based on a zero index.
+	- batchType specifies the write Operations type (insert - 1, update - 2, remove -3)
+
+Bulk.tojson()
+---------------
+	- Returns a JSON document that contains the number of operations and batches in the bulk object.
+	- nInsertOps ,nUpdateOps , nRemoveOps, nBatches are returned as JSON. For example, {nInsertOps: 1, nUpdateOps: 3, nRemoveOps: 4, nBatches: 5}
+	- Bulk.toString returns the above JSON document as a string.

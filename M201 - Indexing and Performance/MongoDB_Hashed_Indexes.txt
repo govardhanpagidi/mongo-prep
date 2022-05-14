@@ -1,0 +1,17 @@
+Hashed indexes maintain entries with hashes of the values of the indexed field.
+
+Hashed indexes support sharding using hashed shard keys. Hashed based sharding uses a hashed index of a field as the shard key to partition data across your sharded cluster.
+
+Using a hashed shard key to shard a collection results in a more even distribution of data.
+
+Does not support arrays. Specifically, creating a hashed index on a field that contains an array or attempting to insert an array into a hashed indexed field returns an error.
+
+MongoDB automatically computes the hashes when resolving queries using hashed indexes. Applications do not need to compute hashes.
+
+db.collection.createIndex( { _id: "hashed" } )
+
+db.collection.createIndex( { "fieldA" : 1, "fieldB" : "hashed", "fieldC" : -1 } )
+
+MongoDB does not support specifying a unique constraint on a hashed index. You can instead create an additional non-hashed index with the unique constraint on that field. MongoDB can use that non-hashed index for enforcing uniqueness on the field.
+
+MongoDB hashed indexes truncate floating point numbers to 64-bit integers before hashing. For example, a hashed index would store the same value for a field that held a value of 2.3, 2.2, and 2.9. To prevent collisions, do not use a hashed index for floating point numbers that cannot be reliably converted to 64-bit integers (and then back to floating point). MongoDB hashed indexes do not support floating point values larger than 2^53.

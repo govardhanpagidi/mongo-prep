@@ -1,0 +1,136 @@
+Documents
+_id field
+	- Primary Key, Unique, immutable
+	- Any type other than array
+	- ObjectId
+Field Names - Cannot contain null character
+Top-level field names - cannot start with $ or Dot (.)
+BSON documents may have more than one field with same name however most MongoDB drivers may not support duplicate field names.
+Field value limit - value of indexed fields have a maximum index key length of 1024 bytes from MongoDB 2.6 through MongoDB with featureCompatibilityVersion (FCV) 4.0 or earlier. Starting in 4.2, MongoDB removes the index key limit for FCV set to 4.2 or greater.
+
+BSON Types
+--------------
+Binary serialization format used to store documents and make remote procedure calls in MongoDB.
+
+BSON identifiers - 
+DSO ABU OB DNRD JSJITL DMM
+double,string,object,array,binData,undefined,objectId,bool,date,null,regex,dbPointer,javascript,symbol,javascriptWithScope,int,timestamp,long,decimal,minKey,maxKey
+1,2,3 4,5,6, 7,8, 9,10,11,12 13,14,15,16,17,18 19,-1,127
+
+instanceof and typeof operators
+
+ObjectIds
+	- ObjectIds are small, likely unique, fast to generate, and ordered
+	- 12 bytes in length
+		- 4-byte timestamp value representing ObjectId creation, measured in seconds since the Unix epoch
+		- 5-byte random value
+		- 3-byte incrementing counter, initialized to a random value
+	- Mongo clients should add _id field with unique Object Id. Benefits - Creation time using objectId.getTimestamp() and sorting on _id field is roughly equivalent to sorting by creation time.
+
+BSON Strings
+	- UTF-8
+	- $regex queries support UTF-8 in the regex string
+
+Timestamps
+	- BSON has a special timestamp type for internal MongoDB use
+	- not associated with regular Date type
+	- 64-bit value
+		- most significant 32 bits are time_t value (seconds since the Unix epoch)
+		- least significant 32 bits are an incrementing ordinal for operations within a given second
+
+BSON format is little-endian. timestamp and counter value are big-endian.
+
+BSON Date
+	- 64-bit integer representing the no of milliseconds since the Unix epoch
+	- Date range of about 290 million years into the past and future
+	- Signed. Negative values represent dates before 1970.
+
+BSON Comparison Order - 
+MNN SOA BOB DTRM
+minKey,number,null,symbol/string,object,array,binData,objectId,bool,date,timestamp,regex,maxKey
+
+Extended JSON
+------------------
+Canonical - Preserves type information at the expense of readbility and interoperability
+Relaxed - Emphasizes readability and interoperability at the expense of type preservation
+
+bsondump - uses canonical mode
+mongodump - uses canonical mode. Requires mongorestore v 4.2 or later that supports Extended JSON (canonical or relaxed) format.
+mongoexport - uses relaxed mode by default. uses canonical mode if used with --jsonFormat
+mongoimport - uses relaxed mode by default. uses canonical mode if used with --legacy
+
+BSONtype decimal supports 34 decimal digits and an exponent range of -6143 to +6144.
+$all - equivalent to $and as below:
+{ tags: { $all: [ "ssl" , "security" ] } }
+{ $and: [ { tags: "ssl" }, { tags: "security" } ] }
+
+The following are equivalents.As such, the $all expression matches documents where the tags field is an array that contains the nested array [ "ssl", "security" ] or is an array that equals the nested array:
+
+db.articles.find( { tags: { $all: [ [ "ssl", "security" ] ] } } )
+db.articles.find( { $and: [ { tags: [ "ssl", "security" ] } ] } )
+db.articles.find( { tags: [ "ssl", "security" ] } )
+
+The $all operator exists to support queries on arrays. But you may use the $all operator to select against a non-array field.
+
+Project Fields to Return from Query
+---------------------------------------
+With the exception of the _id field, you cannot combine inclusion and exclusion statements in projection documents.
+
+$elemMatch, $slice, and $ are the only way to project specific elements to include in the returned array. For instance, you cannot project specific array elements using the array index; e.g. { "instock.0": 1 } projection will not project the array with the first element
+
+$elemMatch
+-----------------
+$elemMatch will match the first matching element in the projection and return at the last of the projection.
+
+$ projection
+------------------------
+$ limits the contents of an <array> to return the first element that matches the query condition on the array.
+
+db.collection.find() operations on views do not support $ projection operator.
+
+Sort is applied before the $ projection operator when included.
+
+$ projection operator works based on some condition from the query statement. This is prior to version 4.4. Only one array and one $ projection operator may appear. Additional array fields in the query document may lead to undefined behavior.
+For example: db.collection.find( { <array>: <value>, <someOtherArray>: <value2> },
+                    { "<array>.$": 1 } )
+
+$projection operator can only appear at the end of the field path eg."field.$" or "fieldA.fieldB.$". Not as "fieldA.$.fieldB"
+
+$ projection operator cannot include $slice projection as part of $ expression.
+for ex: db.inventory.find({"instock.qty": {$gt: 25}}, {"instock.$" {$slice: 1}})
+
+MongoDB already has a restriction where top-level field names cannot start with the dollar sign ($).
+
+$slice projection
+--------------------
+1. Specifies the number of elements in an array to return in the query result.
+
+$slice: <number to return> (positive for first n elements. negative for last n elements)
+or
+$slice: [<number to skip>, <number to return>]
+(number to skip can be positive or negative. Positive to skip first n elements. negative to skip last n elements)
+(number to return must be positive to return next n elements after skipping)
+
+2.db.collection.find() operations on views do not support $slice projection operator.
+
+3.$ projection operator cannot include $slice projection as part of $ expression.
+for ex: db.inventory.find({"instock.qty": {$gt: 25}}, {"instock.$" {$slice: 1}})
+
+4.$slice projection of an array in nested document no longer returns the other fields in the nested document when the projection is part of an inclusion projection. If the $slice projection is part of exclusion projection, the operation continues to return the other fields in the nested document.
+
+For example, consider a collection { item: "socks", qty: 100, details: { colors: [ "blue", "red" ], sizes: [ "S", "M", "L"] } }
+
+db.inventory.find( { }, { qty: 1, "details.colors": { $slice: 1 } } ) will return the following
+{ "_id" : ObjectId("5ee92a6ec644acb6d13eedb1"), "qty" : 100, "details" : { "colors" : [ "blue" ] } }
+
+whereas 
+db.inventory.find( { }, { _id: 0, "details.colors": { $slice: 1 } } ) will return the following 
+{ "item" : "socks", "qty" : 100, "details" : { "colors" : [ "blue" ], "sizes" : [ "S", "M", "L" ] } }
+
+db.inventory.find( { status: "A" }, { item: 1, status: 1, { $slice: -1 } } )
+
+The $slice projection by itself is considered an exclusion. This is from Mongo 4.4. Earlier, it included other fields irrespective of inclusion or exclusion projection.
+
+5.Starting in MongoDB 4.4, find and findAndModify projection cannot contain both a $slice of an array and a field embedded in the array.
+For example, db.inventory.find( {}, { "instock": { $slice: 1 }, "instock.warehouse": 0 } ) will result in path collision error.
+

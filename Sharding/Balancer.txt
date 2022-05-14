@@ -1,0 +1,101 @@
+Sharded Cluster Balancer
+--------------------------
+Background process that monitors the number of chunks on each shard and when number of chunks in a given shard reaches migration thresholds, the balancer automatically migrate chunks between shards to maintain even distribution.
+
+There might be some performance impact when this takes place.
+
+The balancer runs on the primary of the CSRS.
+
+Cluster Balancer - 
+	- Shard cannot participate in multiple chunk migrations at the same. 
+	- Starting 3.4, MongoDB can perform parallel chunk migrations at most n/2 (rounded down) simultaneous chunk migrations.
+
+Chunk Migration Procedure
+	- moveChunk command to the source shard
+	- destination builds index. source shard gets r/w operations
+	- destination requests documents from source shard and receives
+	- after final document, destination starts a sync process to apply changes to migrated documents during migration.
+	- when fully synchronized, the source updates the cluster metadata with the new location of the chunk
+	- source deletes its copy of documents
+
+Migration threshold
+	- Fewer than 20 chunks - 2
+	- 20 - 79 chunks - 4
+	- 80 and greater - 8 
+
+Asynchronous Chunk Migration Cleanup
+	- Chunk migration is one at a time. Does not wait for delete phase to start next migration.
+	- Use _WaitForDelete parameter to block until the delete phase for the current migration is completed.
+
+Chunk Migration and Replication
+---------------------------
+During chunk migration, the _secondaryThrottle value determines when the migration proceeds with next document in the chunk.
+
+In config.settings collection, 
+	- If _secondaryThrottle is set to a write concern, each document move during chunk migration must receive ack before proceeding with the next document.
+	- If the _secondaryThrottle is set to true, each document move must receive ack from atleast one secondary. This is equivalent to a write concernof {w : 2}.
+	- If the _secondaryThrottle is unset, the migration does not wait for replication to a secondary and instead continues with the next document.
+
+The effects of changing the _secondaryThrottle setting may not be immediate. To ensure an immediate effect, stop and restart the balancer to enable the selected value of _secondaryThrottle.
+
+Independent of _secondaryThrottle,
+	- MongoDB briefly pauses all application reads and writes on the source shard before updating the config servers with the new location for the chunk. The move requires all writes to be acknowledged by majority of the members of the replica set both before and after committing the chunk move to config servers.
+	- When an outgoing chunk migration finishes and cleanup occurs, all writes must be replicated to a majority of servers before further cleanup or new incoming migrations can proceed.
+
+Range Deletion Performance Tuning
+---------------------------------
+	- To limit number of documents deleted per batch, set rangeDeleterBatchSize to a small value such as 32.
+	- To add an additional delay between batch deletions, set rangeDeleterBatchDelayMS above the current default of 20 ms.
+
+Balancer commands
+--------------------
+sh.getBalancerState() - Checks if the balancer is enabled, does not check if the balancer is actively balancing.
+sh.isBalancerRunning() - Checks if the balancer is actively balancing chunks.
+db.settings.save( { _id:"chunksize", value: <sizeInMB> } ) - To modify the chunk size.
+sh.startBalancer() - To start the balancer. Will not start if you have set active window.
+db.settings.update(
+   { _id: "balancer" },
+   { $set: { activeWindow : { start : "<start-time>", stop : "<stop-time>" } } },
+   { upsert: true }
+)
+<start-time> and <stop-time> must be set in HH-MM format. Time is relative to CSRS primary timezone.
+
+To remove balancer window schedule:
+db.settings.update({ _id : "balancer" }, { $unset : { activeWindow : true } })
+
+sh.stopBalancer() - Disables the balancer. Any migration will complete before balancer ges disabled temporarily.
+To check if no migration are in progress after disabling
+while (sh.isBalancerRunning) {
+	print("wait....");
+	Sleep(1000);
+}
+
+db.adminCommand( { balancerStop: 1 } )
+
+Don't run a backup while the balancer is active and migrating chunks. you can end with inconsistent snapshot.
+	- Set the balancing window
+	- manually disable the balancer for the backup duration
+
+sh.disableBalancing("<collection-name>") - To disable balancing on a collection for support maintenance operations or atypical workloads, for example, during data ingestions or data exports.
+
+sh.enableBalancing("<collection-name>") - To enable balancing on a collection. Will not immediately happen.
+
+To confirm whether balancing for a collection is enabled or disabled:
+db.getSiblingDB("config").collections.findOne({_id : "<collection-name>"}).noBalance;
+
+Returns:
+	error - if coll name is incorrect
+	true - if balancing is disabled
+	false - if balancing is enabled currently but has been disabled in the past. balancing will begin next time when balancer runs.	
+	no output - if balancing is enabled currently but was never disabled in the past. balancing will begin next time when balancer runs.
+
+Alternate method is sh.status() - returns currently-enabled field which indicates if the balancer is enabled.
+
+maxSize - maximum size for a given shard in MBs
+config = db.getSiblingDB("config")
+config.shards.updateOne( { "_id" : "<shard>"}, { $set : { "maxSize" : 1024 } } )
+
+This value includes the mapped size of all data files on the shard, including the local and admin databases. No default value, allowing shards to consume the total amount of available space if necessary.
+
+config = db.getSiblingDB("config")
+config.runCommand( { addshard : "example.net:34008", maxSize : 125 } )

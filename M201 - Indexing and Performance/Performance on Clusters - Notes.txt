@@ -1,0 +1,60 @@
+Distributed Systems
+	- Consider Latency
+	- Data is spread across different nodes
+	- read implications
+	- write implications
+
+ - Replica Sets
+	- High availability
+	- Use in production environments
+	- Offloading
+	- Privileging primary
+	- target indexing on secondary
+
+ - Sharded Cluster
+	- Shard Node are themselves replica sets
+	- Horizontal scaling solution
+	- After reaching limits of vertical scaling solution
+	- How data is growing and accessed?
+	- Good shard key is essential
+	- Latency due to multiple nodes talking to each other (mongos, config servers, shard nodes etc.)
+
+Scatter Gather or Routed Queries
+	- If Shard Key is available, use routed queries
+	- Sorting - Local sort followed by primary shard sort merge
+	- Skip & Limit merge will follow same as sorting
+
+Sharding
+	- Chunks split by shard key
+	- 64MB limit for chunks
+	- Jumbo chunks
+	- Jumbo Chunks Cannot be moved across shards
+	- Lowest range included and highest excluded
+	- Cardinality (higher the better, first key in shard compound key)
+ 	- Frequency (Even distrbution is good) . Mitigate using compound key, Shouldnt be 1st key
+	- Rate of change - Avoid monotonically changing increasing or decreasing values for shard keys, shouldnt be 1st key
+
+Bulk Writes
+	- ordered or unordered
+	- fails will abort in ordered
+	- unordered is better in shard cluster
+
+Read Preference
+	- default is primary
+	- other options are - primaryPreferred, secondary, secondaryPreferred, nearest
+	- reading from primary is strong consistency
+	- Read from secondary scenarios - Analytics/Reporting or Local reads (nearest read pref)
+	- Providing extra capacity for reads is a bad idea of moving to secondary if we thinking primary writes are heavy. Moving reads to secondary is fairly ok if we think there is heavy reads on primary.
+
+Different Indexes on secondary nodes
+	- specific analytics on secondary nodes
+	- reporting on delayed consistency data
+	- Text Search
+	- prevent from becoming primary (priority = 0, hidden node, delayed secondary)
+	- can be used only during reads from secondary. not from primary.
+	- secondary needs to be shutdwon from replica set and run as standalone before creating indexes on it.
+	- Can be set on primary too if required.
+
+Aggregation pipeline on sharded cluster
+	- merge will happen on any random shard generally
+	- merge will happen on primary shard when there are - $out, $facet, $lookup, $graphlookup

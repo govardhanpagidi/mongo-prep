@@ -1,0 +1,111 @@
+Replica sets use elections to support high availability.
+
+Replica Set Elections
+------------------------
+Elections occur when the primary becomes unavailable and the replica set members autonomously select a new primary.
+
+Replica sets use elections to determine which set member will become primary. Replica sets can trigger an election in response to a variety of events, such as:
+	- Adding a new node to the replica set
+	- initiating a replica set
+	- performing replica set maintenance using methods such as rs.stepDown() or rs.reconfig() and
+	- the secondary members losing connectivity to the primary for more than the configured timeout (10 seconds by default)
+
+The replica set cannot process write operations until the election completes successfully. The replica set can continue to serve read queries if such queries are configured to run on secondaries.
+
+The median time before a cluster elects a new primary should not typically exceed 12 seconds, assuming default replica configuration settings. This includes time required to mark the primary as unavailable and call and complete an election. You can tune this time period by modifying the settings.electionTimeoutMillis replication configuration option. Factors such as network latency may extend the time required for replica set elections to complete, which in turn affects the amount of time your cluster may operate without a primary. These factors are dependent on your particular cluster architecture.
+
+Your application connection logic should include tolerance for automatic failovers and the subsequent elections. Starting in MongoDB 3.6, MongoDB drivers can detect the loss of the primary and automatically retry certain write operations a single time, providing additional built-in handling of automatic failovers and elections:
+	- MongoDB 4.2+ compatible drivers enable retryable writes by default
+	- MongoDB 4.0 and 3.6-compatible drivers must explicitly enable retryable writes by including retryWrites=true in the connection string.
+
+Factors and Conditions that Affect Elections
+---------------------------------------------
+Replication Election Protocol - Replication pv1 reduces replica set failover time and accelerate the detection of multiple simultaneous primaries. With pv1, you can use catchUpTimeoutMillis to prioritize between faster failovers and preservation of w:1 writes.
+
+Hearbeats - Replica set members send heartbeats (pings) to each other every two seconds. If a heartbeat does not return within 10 seconds, the other members mark the delinquent member as inaccessible.
+
+Member Priority - After a replica set has a stable primary, the election algorithm will make a "best-effort" attempt to have the secondary with the highest priority available call an election. Member priority affects both the timing and the outcome of elections; secondaries with higher priority call elections relatively sooner than secondaries with lower priority, and are also more likely to win. However, a lower priority instance can be elected as primary for brief periods, even if a higher priority secondary is available. Replica set members continue to call elections until the highest priority member available becomes primary.
+
+Members with a priority value of 0 cannot become primary and do not seek election.
+
+Mirrored Reads - Starting in version 4.4, MongoDB provides mirrored reads to pre-warm electable secondary members' cache with the most recently accessed data. With mirrored reads, the primary can mirror a subset of operations that it receives and send them to a subset of electable secondaries. Pre-warming the cache of a secondary can help restore performance more quickly after an election.
+
+Loss of a Data Center - With a distributed replica set, the loss of a data center may affect the ability of the remaining members in other data center or data centers to elect a primary.
+
+If possible, distribute the replica set members across data centers to maximize the likelihood that even with a loss of a data center, one of the remaining replica set members can become the new primary.
+
+Network Partition - A network partition may segregate a primary into a partition with a minority of nodes. When the primary detects that it can only see a minority of nodes in the replica set, the primary steps down as primary and becomes a secondary. Independently, a member in the partition that can communicate with a majority of the nodes (including itself) holds an election to become the new primary.
+
+Voting Members
+---------------
+The replica set member configuration setting members[n].votes and member state determine whether a member votes in an election.
+	- All replica set members that have their members[n].votes setting equal to 1 vote in elections. To exclude a member from voting in an election, change the value of the member's members[n].votes configuration to 0.
+	- Only voting members in the following states are eligible to vote - PRIMARY, SECONDARY, STARTUP2, RECOVERING, ARBITER, ROLLBACK
+
+Non-Voting Members
+---------------------
+Although non-voting members do not vote in elections, these members hold copies of the replica set's data and can accept read operations from client applications.
+
+Because a replica set can have up to 50 members, but only 7 voting members, non-voting members allow a replica set to have more than seven members.
+
+Non-voting (i.e. votes is 0) members must have priority of 0.
+
+A non-voting member has both votes and priority equal to 0.
+
+Rollbacks during replica set failover
+---------------------------------------
+A rollback reverts write operations on a former primary when the member rejoins its replica set after a failover. A rollback is necessary only if the primary had accepted write operations that the secondaries had not successfully replicated before the primary stepped down. When the primary rejoins the set as a secondary, it reverts, or "rolls back," its write operations to maintain database consistency with the other members.
+
+MongoDB attempts to avoid rollbacks, which should be rare. When a rollback does occur, it is often the result of a network partition. Secondaries that can not keep up with the throughput of operations on the former primary, increase the size and impact of the rollback.
+
+A rollback does not occur if the write operations replicate to another member of the replica set before the primary steps down and if that member remains available and accessible to a majority of the replica set.
+
+Collect Rollback Data
+-----------------------
+Configure Rollback Data - Starting in version 4.0, MongoDB adds the parameter createRollbackDataFiles to control whether or not rollback files are created during rollbacks.
+
+createRollbackDataFiles - Default is true which means MongoDB creates the rollback files.
+
+Rollback Data - By default, when a rollback occurs, MongoDB writes the rollback data to BSON files. Starting in Mongo 4.4, the rollback directory for a collection is named after the collection's UUID rather than the collection namespace.
+
+<dbpath>/rollback/<collectionUUID> 
+removed.<timestamp>.bson
+
+Rollback Data Exclusion - If the operation to roll back is a collection drop or a document deletion, the rollback of the collection drop or document deletion is not written to the rollback data directory.
+
+Read Rollback Data - To read the contents of the rollback files, use bsondump. Based on the content and the knowledge of their applications, administrators can decide the next course of action to take.
+
+Avoid Replica Set Rollbacks
+----------------------------
+For replica sets, the default write concern {w: 1} only provides acknowledgement of write operations on the primary. With the default write concern, data may be rolled back if the primary steps down before the write operations have replicated to any of the secondaries. This includes data written in multi-document transactions that commit using "w: 1" write concern.
+
+Journaling and Write Concern majority 
+	- To prevent rollbacks of data that have been acknowledged to the client, run all voting members with journaling enabled and use w: majority write concern to guarantee that the write operations propagate to a majority of the replica set nodes before returning with acknowledgement to the issuing client.
+	- With writeConcernMajorityJournalDefault set to false, MongoDB does not wait for w: "majority" writes to be written to the on-disk journal before acknowledging the writes. As such, "majority" write operations could possibly roll back in the event of a transient loss (e.g. crash and restart) of a majority of nodes in a given replica set.
+
+Visibility of Data that can be rolled back
+	- Regardless of a write's write concern, other clients using "local" or "available" read concern can see the result of a write operation before the write operation is acknowledged to the issuing client.
+	- Clients using "local" or "available" read concern can read data which may be subsequently rolled back during replica set failovers.
+
+For operations in a multi-document transaction, when a transaction commits, all data changes made in the transaction are saved and visible outside the transaction. That is, a transaction will not commit some of its changes while rolling back others.
+
+Until a transaction commits, the data changes made in the transaction are not visible outside the transaction.
+
+However, when a transaction writes to multiple shards, not all outside read operations need to wait for the result of the committed transaction to be visible across the shards. For example, if a transaction is committed and write 1 is visible on shard A but write 2 is not yet visible on shard B, an outside read at read concern "local" can read the results of write 1 without seeing write 2.
+
+Rollback Considerations
+-----------------------
+User Operations - Starting in version 4.2, MongoDB kills all in-progress user operations when a member enters the ROLLBACK state.
+
+Index Builds - For FCV 4.2 and earlier, MongoDB waits for any in-progress index builds to finish before starting a rollback.
+
+Index Operations When "majority" Read Concern is Disabled - 
+Disabling "majority" read concern prevents collMod commands which modify an index from rolling back. If such an operation needs to be rolled back, you must resync the affected nodes with the primary node.
+
+Size Limitations - Starting 4.0, MongoDB has no limit on the amount of data that can be rolled back. In previous versions, a mongod instance will not roll back more than 300 MB of data and requires manual intervention beyond this limit.
+
+Rollback Elapsed Time Limitations - Starting in version 4.0, the rollback time limit defaults to 24 hours and is configurable using the parameter rollbackTimeLimitSecs. Rollback time limit is calculated between first operation after the common point and the last point in the oplog for member to roll back.
+
+MongoDB Replication Stage States - 
+SP SR SU AD RR
+Startup, Primary, Secondary, Recovering, Startup2, Unknown, Arbiter, Down, Rollback, Removed

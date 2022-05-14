@@ -1,0 +1,138 @@
+$out
+$planCacheStats
+$project
+$redact
+$replaceRoot 
+$replaceWith
+$sample
+$search
+
+
+$out
+------------
+Takes the documents returned by the aggregation pipeline and writes them to a specified collection. Starting in MongoDB 4.4, you can specify the output database.
+
+The $out stage must be the last stage in the pipeline. The $out operator lets the aggregation framework return result sets of any size.
+
+{ $out: { db: "<output-db>", coll: "<output-collection>" } }
+
+db - For a replica set or a standalone, if the output database does not exist, $out also creates the database.For a sharded cluster, the specified output database must already exist.
+
+$out can take a string to specify only the output collection (i.e. output to a collection in the same database):
+
+{ $out: "<output-collection>" } // Output collection is in the same database
+
+You cannot specify a sharded collection as the output collection. The input collection for a pipeline can be sharded.
+
+The $out operator cannot write results to a capped collection.
+
+The $out operation creates a new collection if one does not already exist. The collection is not visible until the aggregation completes. If the aggregation fails, MongoDB does not create the collection.
+
+If the collection specified by the $out operation already exists, then upon completion of the aggregation, the $out stage atomically replaces the existing collection with the new results collection. Specifically, the $out operation:
+	1. Creates a temp collection.
+	2. Copies the indexes from the existing collection to the temp collection.
+	3. Inserts the documents into the temp collection.
+	4. Calls the renameCollection command with dropTarget: true to rename the temp collection to the destination collection.
+
+The $out operation does not change any indexes that existed on the previous collection. If the aggregation fails, the $out operation makes no changes to the pre-existing collection.
+
+A mongodump started with --oplog fails if a client issues an aggregation pipeline that includes $out during the dump process.
+
+Restrictions
+------------
+	1. An aggregation pipeline cannot use $out inside transactions.
+	2. The $out stage is not allowed as part of a view definition. If the view definition includes nested pipeline (e.g. the view definition includes $lookup or $facet stage), this $out stage restriction applies to the nested pipelines as well.
+	3. Starting in 4.2, you cannot include the $out stage in the $lookup stage's nested pipeline.
+	4. $facet stage's nested pipeline cannot include the $out stage.
+	5. $unionWith stage's nested pipeline cannot include the $out stage.
+	6. Starting in MongoDB 4.2, the $out stage cannot be used in conjunction with read concern "linearizable". That is, if you specify "linearizable" read concern for db.collection.aggregate(), you cannot include the $out stage in the pipeline
+
+$planCacheStats
+-------------------
+Returns plan cache information for a collection. The stage returns a document for each plan cache entry.
+
+The $planCacheStats stage must be the first stage in the pipeline. 
+
+{ $planCacheStats: { } }
+
+Starting 4.4, $planCacheStats stage can be run on mongos instances as well as on mongod instances. In 4.2, $planCacheStats stage can only run on mongod instances.
+$planCacheStats includes new fields: the host field and, when run against a mongos, the shard field.
+mongo shell provides the method PlanCache.list() as a wrapper for $planCacheStats aggregation stage.
+MongoDB removes the following - 
+	- planCacheListPlans and planCacheListQueryShapes commands, and
+	- PlanCache.getPlansByQuery() and PlanCache.listQueryShapes() methods.
+Use $planCacheStats or PlanCache.list() instead.
+
+$planCacheStats is not allowed in - transactions and $facet aggregation stage
+$planCacheStats requires read concern level "local".
+
+$redact
+------------
+Restricts the contents of the documents based on information stored in the documents themselves.
+
+{ $redact: <expression> }
+
+The argument can be any valid expression as long as it resolves to the $$DESCEND, $$PRUNE, or $$KEEP system variables.
+
+$$DESCEND - $redact returns the fields at the current document level, excluding embedded documents. To include embedded documents and embedded documents within arrays, apply the $cond expression to the embedded documents to determine access for these embedded documents.
+
+$$PRUNE - $redact excludes all fields at this current document/embedded document level, without further inspection of any of the excluded fields. This applies even if the excluded field contains embedded documents that may have different access levels.
+
+$$KEEP - $redact returns or keeps all fields at this current document/embedded document level, without further inspection of the fields at this level. This applies even if the included field contains embedded documents that may have different access levels.
+
+var userAccess = [ "STLW", "G" ];
+db.forecasts.aggregate(
+   [
+     { $match: { year: 2014 } },
+     { $redact: {
+        $cond: {
+           if: { $gt: [ { $size: { $setIntersection: [ "$tags", userAccess ] } }, 0 ] },
+           then: "$$DESCEND",
+           else: "$$PRUNE"
+         }
+       }
+     }
+   ]
+);
+
+db.accounts.aggregate(
+  [
+    { $match: { status: "A" } },
+    {
+      $redact: {
+        $cond: {
+          if: { $eq: [ "$level", 5 ] },
+          then: "$$PRUNE",
+          else: "$$DESCEND"
+        }
+      }
+    }
+  ]
+);
+
+$sample
+----------
+Randomly selects the specified number of documents from its input.
+
+{ $sample: { size: <positive integer> } }
+
+$sample uses one of two methods to obtain N random documents, depending on the size of the collection, the size of N, and $sample's position in the pipeline.
+
+If all the following conditions are met, $sample uses a pseudo-random cursor to select documents:
+
+	1. $sample is the first stage of the pipeline
+	2. N is less than 5% of the total documents in the collection
+	3. The collection contains more than 100 documents
+
+If any of the above conditions are NOT met, $sample performs a collection scan followed by a random sort to select N documents. In this case, the $sample stage is subject to the sort memory restrictions.
+
+$sample may output the same document more than once in its result set.
+
+$search
+-----------------
+$search aggregation pipleline stage performs a full-text search of the field or fields in an Atlas collection. The fields must be covered by an Atlas Search index.
+
+Operators - autocomplete, compound, equals, exists, geoShape, geoWithin, near, phrase, queryString, range, regex, search, span, term, text, wildcard.
+
+$search is only available for MongoDB Atlas clusters, and is not available for self-managed deployments.
+

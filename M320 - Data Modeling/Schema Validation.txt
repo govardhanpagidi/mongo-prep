@@ -1,0 +1,84 @@
+MongoDB provides the capability to perform schema validation during updates and insertions.
+
+Specify Validation Rules
+--------------------------
+Validation rules are on a per-collection basis.
+
+To specify validation rules when creating a new collection, use db.createCollection() with the validator option.
+
+To add document validation to an existing collection, use collMod command with the validator option.
+
+validationLevel option - Determines how strictly MongoDB applies validation rules to existing documents during update
+
+validationAction option - Determines whether MongoDB should error and reject documents that violate the validation rules or warn the violations in the log but allow invalid documents.
+
+JSON Schema
+-----------------
+MongoDB supports JSON Schema validation and is recommended.
+
+db.createCollection("students", {
+   validator: {
+      $jsonSchema: {
+         bsonType: "object",
+         required: [ "name", "year", "major", "address" ],
+         properties: {
+            name: {
+               bsonType: "string",
+               description: "must be a string and is required"
+            },
+            year: {
+               bsonType: "int",
+               minimum: 2017,
+               maximum: 3017,
+               description: "must be an integer in [ 2017, 3017 ] and is required"
+            },
+            major: {
+               enum: [ "Math", "English", "Computer Science", "History", null ],
+               description: "can only be one of the enum values and is required"
+            },
+            gpa: {
+               bsonType: [ "double" ],
+               description: "must be a double if the field exists"
+            },
+            address: {
+               bsonType: "object",
+               required: [ "city" ],
+               properties: {
+                  street: {
+                     bsonType: "string",
+                     description: "must be a string if the field exists"
+                  },
+                  city: {
+                     bsonType: "string",
+                     description: "must be a string and is required"
+                  }
+               }
+            }
+         }
+      }
+   }
+})
+
+The $jsonSchema operator matches documents that satisfy the specified JSON Schema.
+
+{ $jsonSchema: <JSON Schema object> }
+
+Used in insert, update, find, aggregate and other read/write operations.
+
+In addition to JSON schema validation, MongoDB supports validation with other query operators except the following - $near, $nearSphere, $text, $where, $expre with $function expressions.
+
+Validation occurs during updates and inserts. When you add validation to a collection, existing documents do not undergo validation checks until modification.
+
+validationLevel - strict (default) or moderate or off
+
+validationAction - error or warn
+
+You cannot specify a validator for collections in the admin, local, and config databases.
+
+You cannot specify a validator for system.* collections.
+
+Users can bypass document validation using the bypassDocumentValidation option.
+
+bypassDocumentValidation is available per operation in - applyOps, findAndModify, madReduce, insert, update, $out and $merge stages for aggregate commands
+
+For deployments that have enabled access control, to bypass document validation, the authenticated user must have bypassDocumentValidation action. The built-in roles dbAdmin and restore provide this action.

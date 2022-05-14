@@ -1,0 +1,114 @@
+Aggregation vs Map Reduce
+-----------------------------
+	- An aggregation pipeline provides better performance and usability than a map-reduce operation.
+	- Map-reduce operations can be rewritten using aggregation pipeline operators, such as $group, $merge, and others.
+	- For map-reduce operations that require custom functionality, MongoDB provides the $accumulator and $function aggregation operators starting in version 4.4. Use these operators to define custom aggregation expressions in JavaScript.
+
+Definition
+-----------------------
+Map-reduce is a data processing paradigm for condensing large volumes of data into useful aggregated results. To perform map-reduce operations, MongoDB provides the mapReduce database command.
+
+MongoDB applies the map phase to each input document (i.e. the documents in the collection that match the query condition). 
+
+The map function emits key-value pairs. For those keys that have multiple values, MongoDB applies the reduce phase, which collects and condenses the aggregated data. 
+
+MongoDB then stores the results in a collection. Optionally, the output of the reduce function may pass through a finalize function to further condense or process the results of the aggregation.
+
+All map-reduce functions in MongoDB are JavaScript and run within the mongod process. 
+
+Map-reduce operations take the documents of a single collection as the input and can perform any arbitrary sorting and limiting before beginning the map stage. 
+
+mapReduce can return the results of a map-reduce operation as a document, or may write the results to collections.
+
+mapReduce for sharded collections
+----------------------------------
+MongoDB supports map-reduce operations on sharded collections.
+
+However, starting in version 4.2, MongoDB deprecates the map-reduce option to create a new sharded collection and the use of the sharded option for map-reduce. To output to a sharded collection, create the sharded collection first. MongoDB 4.2 also deprecates the replacement of an existing sharded collection.
+
+If you did not create the sharded collection first, MongoDB creates and shards the collection on the _id field. However, it is recommended that you create the sharded collection first.
+
+Starting in version 4.2, MongoDB deprecates the replacement of an existing sharded collection.
+
+Starting in version 4.0, if the output collection already exists but is not sharded, map-reduce fails.
+
+For a new or an empty sharded collection, MongoDB uses the results of the first stage of the map-reduce operation to create the initial chunks distributed among the shards.
+
+
+If the out field for mapReduce has the sharded value, MongoDB shards the output collection using the _id field as the shard key.
+
+Views do not support map-reduce operations.
+
+mapReduce Function
+---------------------
+db.runCommand( {
+     mapReduce: <string>,
+     map: <string or JavaScript>,
+     reduce: <string or JavaScript>,
+     finalize: <string or JavaScript>,
+     out: <output>,
+     query: <document>,
+     sort: <document>,
+     limit: <number>,
+     scope: <document>,
+     jsMode: <boolean>,
+     verbose: <boolean>,
+     bypassDocumentValidation: <boolean>,
+     collation: <document>,
+     writeConcern: <document>,
+     comment: <any>
+} )
+
+mapReduce - Input Collection
+map - map function. reference current document as 'this'. can call emit (key, value) any number of times.
+	function() {...;emit(key, value);}
+	function () {if (this.status == "A") emit(this.cust_id,1);}
+	function() {this.items.forEach(function(item){ emit(item.sku, 1); });}
+
+reduce - reduce function. will not be called for a key that has only a single value.
+	function(key, values) {...;return result;}	
+	- type of the return object must be identical to the type of the value emitted by the map function.
+	- reduce function must be associative.
+	- reduce function must be idempotent.
+	- reduce function must not be commutative. order of input elements in the value array should not affect the result.
+
+finalize - Function that modifies the output after the reduce function.
+function(key, reducedValue) {
+   ...
+   return modifiedObject;
+}
+
+out options - 
+out: <collectionName>
+out: { <action>: <collectionName> [, db: <dbName>] [, sharded: <boolean> ] [, nonAtomic: <boolean> ] }
+
+action - replace / merge / reduce
+	replace will replace if collection already exists. merge will merge, ie overwrite existing document if key matches. reduce will apply the reduce function to both new and existing documents and overwrite with the result.
+
+Starting in version 4.2, the use of the sharded option is deprecated.
+
+Starting in MongoDB 4.2, explicitly setting nonAtomic to false is deprecated.
+
+out: { inline: 1 } - Perform the map-reduce operation in memory and return the result. This option is the only available option for out on secondary members of replica sets. primary members of replica sets can output to a collection and return inline. when inline result, it must fit within max BSON size document (16MB)
+
+Concurrency
+-------------
+- The read phase takes a read lock. It yields every 100 documents.
+- The insert into the temporary collection takes a write lock for a single write.
+- If the output collection does not exist, the creation of the output collection takes a write lock.
+- If the output collection exists, then the output actions (i.e. merge, replace, reduce) take a write lock. This write lock is global, and blocks all operations on the mongod instance.
+
+
+Note that the final write lock during post-processing makes the results appear atomically. However, output actions merge and reduce may take minutes to process. For the merge and reduce, the nonAtomic flag is available, which releases the lock between writing each output document. Starting in MongoDB 4.2, explicitly setting nonAtomic: false is deprecated.
+
+Incremental map reduce
+-------------------------
+To perform incremental map-reduce:
+
+	- Run a map-reduce job over the current collection and output the result to a separate collection.
+	- When you have more data to process, run subsequent map-reduce jobs with:
+		- the query parameter that specifies conditions that match only the new documents.
+		- the out parameter that specifies the reduce action to merge the new results into the existing output collection.
+
+
+ 

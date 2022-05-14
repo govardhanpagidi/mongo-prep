@@ -1,0 +1,300 @@
+Comparison - $eq, $gt, $gte, $in, $lt, $lte, $ne, $nin
+
+Logical - $and, $not, $nor, $or
+
+Element - $exists, $type
+
+Evaluation - $expr, $jsonSchema, $mod, $regex, $text, $where
+
+Geospatial - $geoIntersects, $geoWithin, $near, $nearSphere
+
+Array - $all, $elemMatch, $size
+
+Bitwise - $bitsAllClear, $bitsAllSet, $bitsAnyClear, $bitsAnySet
+
+Projection - $, $elemMatch, $meta, $slice
+
+Miscellanous - $comment, $rand
+
+Update Operators - $currentDate, $inc, $min, $max, $mul, $rename, $set, $setOnInsert, $unset
+
+Array Operators - $, $[], $[<identifier>], $addToSet, $pop, $pull, $push, $pullAll
+
+
+Miscellanous Operators
+-------------------------
+$rand - Generates a random float between 0 and 1
+$rand: {}
+
+$comment - Adds a comment to the field.
+$comment: "yoour own comment here"
+
+Update Operators
+------------------------
+$inc
+--------------
+$inc - increments the field value. if field does not exist, field will be created and value will be set.
+{ $inc: { <field1>: <amount1>, <field2>: <amount2>, ... } }
+	- The $inc operator accepts positive and negative values. If the field does not exist, $inc creates the field and sets the field to the specified value.
+	- Use of the $inc operator on a field with a null value will generate an error.
+	- $inc is an atomic operation within a single document.
+
+$min
+---------------
+$min - The $min updates the value of the field to a specified value if the specified value is less than the current value of the field. Can be used against date field as well.If the field does not exist, the $min operator sets the field to the specified value.
+
+For comparisons between values of different types, such as a number and a null, $min uses the BSON comparison order.
+
+{ $min: { <field1>: <value1>, ... } }
+db.scores.update( { _id: 1 }, { $min: { lowScore: 150 } } )
+db.tags.update({ _id: 1 },  { $min: { dateEntered: new Date("2013-09-25") } })
+
+
+$max
+-----------
+$max - The $max operator updates the value of the field to a specified value if the specified value is greater than the current value of the field. The $max operator can compare values of different types, using the BSON comparison order.If the field does not exists, the $max operator sets the field to the specified value.
+{ $max: { <field1>: <value1>, ... } }
+db.scores.update( { _id: 1 }, { $max: { highScore: 950 } } )
+db.tags.update({ _id: 1 },  { $max: { dateEntered: new Date("2013-09-25") } })
+
+For comparisons between values of different types, such as a number and a null, $max uses the BSON comparison order.
+
+$rename
+---------------
+The $rename operator updates the name of a field and has the following form:
+{$rename: { <field1>: <newName1>, <field2>: <newName2>, ... } }
+
+The new field name must differ from the existing field name. To specify a <field> in an embedded document, use dot notation.
+
+Consider the following example:
+db.students.update( { _id: 1 }, { $rename: { 'nickname': 'alias', 'cell': 'mobile' } } )
+This operation renames the field nickname to alias, and the field cell to mobile.
+
+The $rename operator logically performs an $unset of both the old name and the new name, and then performs a $set operation with the new name. As such, the operation may not preserve the order of the fields in the document; i.e. the renamed field may move within the document.
+
+	- If the document already has a field with the <newName>, the $rename operator removes that field and renames the specified <field> to <newName>.
+	- If the field to rename does not exist in a document, $rename does nothing (i.e. no operation).
+	- For fields in embedded documents, the $rename operator can rename these fields as well as move the fields in and out of embedded documents. 
+	- $rename does not work if these fields are in array elements.
+
+Array Operators
+-------------------
+
+$
+-----------
+The positional $ operator identifies an element in an array to update without explicitly specifying the position of the element in the array.
+{ "<array>.$" : value }
+	- the positional $ operator acts as a placeholder for the first element that matches the query document, and the array field must appear as part of the query document.
+	- Do not use the positional operator $ with upsert operations because inserts will use the $ as a field name in the inserted document.
+	- The positional $ operator cannot be used for queries which traverse more than one array, such as queries that traverse arrays nested within other arrays, because the replacement for the $ placeholder is a single value
+	- When used with the $unset operator, the positional $ operator does not remove the matching element from the array but rather sets it to null.
+	- If the query matches the array using a negation operator, such as $ne, $not, or $nin, then you cannot use the positional operator to update values from this array. However, if the negated portion of the query is inside of an $elemMatch expression, then you can use the positional operator to update this field.
+
+
+${]
+-------------
+The all positional operator $[] indicates that the update operator should modify all elements in the specified array field.
+{ <update operator>: { "<array>.$[]" : value } }
+	- If an upsert operation results in an insert, the query must include an exact equality match on the array field in order to use the $[] positional operator in the update statement. If no such document exists, the operation would result in an insertion of the document.
+	- If the upsert operation did not include an exact equality match and no matching documents were found to update, the upsert operation would error.
+	- The $[] operator can be used for queries which traverse more than one array and nested arrays.
+	- The $[] positional operator, in conjunction with filter $[<identifier>] positional operator can be used to update nested arrays.
+
+$[<identifier>]
+-------------------
+The filtered positional operator $[<identifier>] identifies the array elements that match the arrayFilters conditions for an update operation, e.g. db.collection.update() and db.collection.findAndModify().
+Used in conjunction with the arrayFilters option.
+
+$addToSet
+--------
+The $addToSet operator adds a value to an array unless the value is already present, in which case $addToSet does nothing to that array.
+{ $addToSet: { <field1>: <value1>, ... } }
+
+$addToSet only ensures that there are no duplicate items added to the set and does not affect existing duplicate elements. $addToSet does not guarantee a particular ordering of elements in the modified set.
+
+If you use $addToSet on a field that is absent in the document to update, $addToSet creates the array field with the specified value as its element.
+
+If you use $addToSet on a field that is not an array, the operation will fail.
+
+If the value is an array, $addToSet appends the whole array as a single element.
+
+If the value is a document, MongoDB determines that the document is a duplicate if an existing document in the array matches the to-be-added document exactly; i.e. the existing document has the exact same fields and values and the fields are in the same order. As such, field order matters and you cannot specify that MongoDB compare only a subset of the fields in the document to determine whether the document is a duplicate of an existing array element.
+
+You can use the $addToSet operator with the $each modifier. The $each modifier allows the $addToSet operator to add multiple values to the array field.
+
+$pop
+----------
+The $pop operator removes the first or last element of an array. Pass $pop a value of -1 to remove the first element of an array and 1 to remove the last element in an array.
+
+{ $pop: { <field>: <-1 | 1>, ... } }
+
+The $pop operation fails if the <field> is not an array.
+
+If the $pop operator removes the last item in the <field>, the <field> will then hold an empty array.
+
+$pull
+----------
+The $pull operator removes from an existing array all instances of a value or values that match a specified condition.
+
+{ $pull: { <field1>: <value|condition>, <field2>: <value|condition>, ... } }
+
+If you specify a <condition> and the array elements are embedded documents, $pull operator applies the <condition> as if each array element were a document in a collection. See Remove Items from an Array of Documents for an example.
+
+If the specified <value> to remove is an array, $pull removes only the elements in the array that match the specified <value> exactly, including order.
+
+If the specified <value> to remove is a document, $pull removes only the elements in the array that have the exact same fields and values. The ordering of the fields can differ.
+
+Geospatial Operators
+------------------------
+$geoIntersects- Selects documents whose geospatial data intersects with a specified GeoJSON object; i.e. where the intersection of the data and the specified object is non-empty. The $geoIntersects operator uses the $geometry operator to specify the GeoJSON object. To specify a GeoJSON polygons or multipolygons using the default coordinate reference system (CRS)
+{
+  <location field>: {
+     $geoIntersects: {
+        $geometry: {
+           type: "<GeoJSON object type>" ,
+           coordinates: [ <coordinates> ]
+        }
+     }
+  }
+}
+$geoIntersects does not require a geospatial index. However, a geospatial index will improve query performance. Both 2dsphere and 2d geospatial indexes support $geoIntersects.
+
+
+$geoWithin - Selects documents with geospatial data that exists entirely within a specified shape. The specified shape can be either a GeoJSON Polygon (either single-ringed or multi-ringed), a GeoJSON MultiPolygon, or a shape defined by legacy coordinate pairs. The $geoWithin operator uses the $geometry operator to specify the GeoJSON object.
+{
+   <location field>: {
+      $geoWithin: {
+         $geometry: {
+            type: <"Polygon" or "MultiPolygon"> ,
+            coordinates: [ <coordinates> ]
+         }
+      }
+   }
+}
+
+The available shape operators are - $box, $polygon, $center, $centerSphere
+
+$geoWithin does not require a geospatial index. However, a geospatial index will improve query performance. Both 2dsphere and 2d geospatial indexes support $geoWithin.
+
+$within is Deprecated since version 2.4. $geoWithin replaces $within in MongoDB 2.4.
+
+$near
+--------------------
+Specifies a point for which a geospatial query returns the documents from nearest to farthest. The $near operator can specify either a GeoJSON point or legacy coordinate point.
+$near requires a geospatial index:
+	- 2dsphere index if specifying a GeoJSON point,
+	- 2d index if specifying a point using legacy coordinates.
+{
+   <location field>: {
+     $near: {
+       $geometry: {
+          type: "Point" ,
+          coordinates: [ <longitude> , <latitude> ]
+       },
+       $maxDistance: <distance in meters>,
+       $minDistance: <distance in meters>
+     }
+   }
+}
+If specifying latitude and longitude coordinates, list the longitude first and then latitude. Valid longitude values are between -180 and 180, both inclusive.Valid latitude values are between -90 and 90, both inclusive.
+When specifying a GeoJSON point, you can use the optional $minDistance and $maxDistance specifications to limit the $near results by distance in meters.
+
+for using $near to specify a point with legacy coordinates:
+{
+  $near: [ <x>, <y> ],
+  $maxDistance: <distance in radians>
+}
+When specifying a legacy coordinate, you can use the optional $maxDistance specification to limit the $near results by distance in radians. $maxDistance limits the results to those documents that are at most the specified distance from the center point.
+
+You cannot combine the $near operator, which requires a special geospatial index, with a query operator or command that requires another special index. For example you cannot combine $near with the $text query.
+
+$near sorts documents by distance.If you also include a sort() for the query, sort() re-orders the matching documents, effectively overriding the sort operation already performed by $near. When using sort() with geospatial queries, consider using $geoWithin operator, which does not sort documents, instead of $near.
+
+$nearSphere
+-------------------
+Specifies a point for which a geospatial query returns the documents from nearest to farthest. MongoDB calculates distances for $nearSphere using spherical geometry.
+
+$nearSphere requires a geospatial index: 
+	- 2dsphere index for location data defined as GeoJSON points
+	- 2d index for location data defined as legacy coordinate pairs. To use a 2d index on GeoJSON points, create the index on the coordinates field of the GeoJSON object.
+
+The $nearSphere operator can specify either a GeoJSON point or legacy coordinate point.
+
+{
+  $nearSphere: {
+     $geometry: {
+        type : "Point",
+        coordinates : [ <longitude>, <latitude> ]
+     },
+     $minDistance: <distance in meters>,
+     $maxDistance: <distance in meters>
+  }
+}
+or 
+
+{
+  $nearSphere: [ <x>, <y> ],
+  $minDistance: <distance in radians>,
+  $maxDistance: <distance in radians>
+}
+The optional $minDistance is available only if the query uses the 2dsphere index.
+If you use longitude and latitude for legacy coordinates, specify the longitude first, then latitude.
+
+Bitwise Operators
+--------------------
+$bitsAllClear - Matches numeric or binary values in which a set of bit positions all have a value of 0.
+{ <field>: { $bitsAllClear: <numeric bitmask> } }
+{ <field>: { $bitsAllClear: < BinData bitmask> } }
+{ <field>: { $bitsAllClear: [ <position1>, <position2>, ... ] } }
+
+The field value must be either numeric or a BinData instance. Otherwise, $bitsAllClear will not match the current document.
+
+Queries cannot use indexes for the $bitsAllClear portion of a query, although the other portions of a query can use indexes, if applicable.
+
+Numeric bitmask must be representable as a non-negative 32-bit signed integer.
+Numbers are sign extended.
+$bitsAllClear will not match numerical values that cannot be represented as a signed 64-bit integer. 
+
+$bitsAllSet - matches documents where all of the bit positions given by the query are set (i.e. 1) in field.
+$bitsAnyClear - matches documents where any of the bit positions given by the query are clear (i.e. 0) in field.
+$bitsAnySet - matches documents where any of the bit positions given by the query are set (i.e. 1) in field.
+
+Mongo Shell Methods
+--------------------
+cursor.count() - Counts the number of documents referenced by a cursor. Append the count() method to a find() query to return the number of matching documents. The operation does not perform the query but instead counts the results that would be returned by the query.
+
+Takes applySkipLimit as the parameter. Default is applySkipLimit: false which means skip and limits are ignored. Set applySkipLimit: true to consider the effect of cursor.skip() and cursor.limit() methods.
+
+db.collection.count() - Returns the count of documents that would match a find() query for the collection or view. The db.collection.count() method does not perform the find() operation but instead counts and returns the number of results that match a query.
+
+Avoid using the db.collection.count() method without a query predicate since without the query predicate, the method returns results based on the collection's metadata, which may result in an approximate count.
+
+count() is equivalent to the db.collection.find(query).count() construct.
+
+db.collection.countDocuments() - Returns the count of documents that match the query for a collection or view. The method wraps the $group aggregation stage with a $sum expression to perform the count and is available for use in Transactions.
+
+Unlike db.collection.count(), db.collection.countDocuments() does not use the metadata to return the count. Instead, it performs an aggregation of the document to return an accurate count, even after an unclean shutdown or in the presence of orphaned documents in a sharded cluster.
+
+db.collection.countDocuments( <query>, <options> )
+Options - limit, skip, hint, maxTimeMS
+
+db.collection.countDocuments() wraps the following aggregation operation and returns just the value of n:
+
+db.collection.aggregate([
+   { $match: <query> },
+   { $group: { _id: null, n: { $sum: 1 } } }
+])
+
+You cannot use the following query operators as part of the query expression for db.collection.countDocuments(): 
+$where - Use $expr instead.
+$near - Use $geoWithin with $center instead.
+$nearSphere - Use $geoWithin with $centerSphere instead
+
+db.collection.estimatedDocumentCount()  - Returns the count of all documents in a collection or view. The method wraps the count command.
+
+db.collection.estimatedDocumentCount( <options> )
+options - maxTimeMS
+
+db.collection.estimatedDocumentCount() does not take a query filter and instead uses metadata to return the count for a collection. On a sharded cluster, the resulting count will not correctly filter out orphaned documents. After an unclean shutdown, the count may be incorrect.
+
+You cannot use count and shell helpers count() and db.collection.count() in transactions.

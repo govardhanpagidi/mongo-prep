@@ -1,0 +1,154 @@
+$addFields (Alias for $set and similar to $project)
+$bucket
+$bucketAuto
+$collStats
+$count
+$currentOp
+
+$addFields
+-----------
+	- Same as $project and $set.
+	- Adds new fields to documents. Outputs documents that contains all existing fields from the input document and newly added fields.
+
+{ $addFields: { <newField>: <expression>, ... } }
+	
+	- $addFields appends new fields to existing documents. 
+	- You can include one or more $addFields stages in an aggregation operation.
+	- To add field or fields to embedded documents (including documents in arrays) use the dot notation.
+	- To add an element to an existing array field with $addFields, use with $concatArrays.
+
+$bucket
+---------------
+Categorizes incoming documents into groups, called buckets, based on a specified expression and bucket boundaries and outputs a document per each bucket. 
+
+Each output document contains an _id field whose value specifies the inclusive lower bound of the bucket. The output option specifies the fields included in each output document.
+
+The $bucket stage has a limit of 100 megabytes of RAM. By default, if the stage exceeds this limit, $bucket returns an error. To allow more space for stage processing, use the allowDiskUse option to enable aggregation pipeline stages to write data to temporary files.
+
+{
+  $bucket: {
+      groupBy: <expression>,
+      boundaries: [ <lowerbound1>, <lowerbound2>, ... ],
+      default: <literal>,
+      output: {
+         <output1>: { <$accumulator expression> },
+         ...
+         <outputN>: { <$accumulator expression> }
+      }
+   }
+}
+
+$bucketAuto
+--------------------
+Categorizes incoming documents into a specific number of groups, called buckets, based on a specified expression. Bucket boundaries are automatically determined in an attempt to evenly distribute the documents into the specified number of buckets.
+
+Each bucket is represented as a document in the output. The document for each bucket contains:
+	1.An _id object that specifies the bounds of the bucket.
+		The _id.min field specifies the inclusive lower bound for the bucket.
+		The _id.max field specifies the upper bound for the bucket. This bound is exclusive for all buckets except the final bucket in the series, where it is inclusive.
+	2. A count field that contains the number of documents in the bucket. The count field is included by default when the output document is not specified.
+
+{
+  $bucketAuto: {
+      groupBy: <expression>,
+      buckets: <number>,
+      output: {
+         <output1>: { <$accumulator expression> },
+         ...
+      }
+      granularity: <string>
+  }
+}
+
+Granularity - A string that specifies the preferred number series to use to ensure that the calculated boundary edges end on preferred round numbers or their powers of 10.
+
+Available only if the all groupBy values are numeric and none of them are NaN.
+
+Preferred Number Series:
+Renard Series - R5, R10, R20, R40, R80
+1-2-5 series - 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50 and so on
+E-series- E6, E12, E24, E48, E96, E192
+POWERSOF2
+
+$collStats
+--------------
+Returns statistics regarding a collection or view.
+
+{
+  $collStats:
+    {
+      latencyStats: { histograms: <boolean> },
+      storageStats: { scale: <number> },
+      count: {},
+      queryExecStats: {}
+    }
+}
+
+latencyStats - For reads, writes, commands & transactions. Histograms in microsec and count.
+db.books.aggregate([{$collStats: {latencyStats: {histograms: true}}}])
+
+storageStats - Depends on storage engine used. Performing $collStats with the storageStats option on a view results in an error.
+db.books.aggregate([{$collStats: {storageStats: {scale: 1024}}}])
+
+count - Returns the number of documents in a collection
+db.books.aggregate([{$collStats: {count: {}}}])
+
+queryExecStats - Returns the query execution statistics in the result document. Includes total and nonTailable fields which consists of the 64-bit integer giving the total no of queries that performed a collection scan. Total gives all whereas nonTailable considers only those queries that did not use a tailable cursor.
+
+$collStats outputs one document per shard when run on sharded collections. Each output document contains a shard field with the name of the shard the document corresponds to.
+
+$count
+---------------
+Passes a document to the next stage that contains a count of the number of documents input to the stage.
+
+{ $count: <string> }
+
+The following is equivalent to $count:
+db.collection.aggregate( [
+   { $group: { _id: null, myCount: { $sum: 1 } } },
+   { $project: { _id: 0 } }
+] )
+
+$currentOp
+-------------
+Returns a stream of documents containing information on active and/or dormant operations as well as inactive sessions that are holding locks as part of a transaction.
+
+The stage returns a document for each operation or session. To run $currentOp, use the db.aggregate() helper on the admin database.
+
+The $currentOp aggregation stage is preferred over the currentOp command and its mongo shell helper db.currentOp(). Because currentOp command and db.currentOp() helper returns the results in a single document, the total size of the currentOp result set is subject to the maximum 16MB BSON size limit for documents. The $currentOp stage returns a cursor over a stream of documents, each of which reports a single operation. Each operation document is subject to the 16MB BSON limit, but unlike the currentOp command, there is no limit on the overall size of the result set.
+
+$currentOp also enables you to perform arbitrary transformations of the results as the documents pass through the pipeline.
+
+{ $currentOp: { allUsers: <boolean>, idleConnections: <boolean>, idleCursors: <boolean>, idleSessions: <boolean>, localOps: <boolean> }, backtrace: <boolean>}
+
+allUsers - Default is false. Set to true to report operations belonging to all users. For standalone and replica sets that enforce access control, the inprog privilege is required to run $currentOp with allUsers: true. For sharded clusters that enforce access control, the inprog privilege is required to run $currentop.
+
+idleConnections - Defaults to false and reports only active operations. Set to true to include all operations on idle connections.
+
+idleCursors - Defaults to false. If set to true, $currentOp will report on cursors that are "idle"; i.e. open but not currently active in a getMore operation. Information on idle cursors have the type set to "idleCursor". Information on cursors currently active in a getMore operation information have the type set to "op" and op set to getmore.
+
+idleSessions - Defaults to true. In addition to active/dormant operations, $currentOp will report on:
+		- Inactive sessions that are holding locks as part of a transaction. Each inactive session will appear as a separate document in the $currentOp stream.
+		- The document for a session includes information on the session id in the lsid field and the transaction in the transaction field. Starting in MongoDB 4.2, information on idle sessions have the type set to "idleSession".
+		- $currentOp.twoPhaseCommitCoordinator in inactive state
+
+If set to false, $currentOp will not report on:
+	- Inactive sessions
+	- $currentOp.twoPhaseCommitCoordinator information in inactive state
+
+localOps - Defaults to false. Applicable only on mongos and it will report operations running on the shards. When set to true on mongos, it reports only those operations running locally on that mongos. This parameter has no effect on mongod. 
+
+backtrace - Defaults to false. Determines whether callstack information is returned as part of the waitingForLatch output field. 
+	- By default as false, $currentOp omits the waitingForLatch.backtrace field. 
+	- If set to true, $currentOp includes waitingForLatch.backtrace field that contains the callstack information, if available. If unavailable, the field contains an empty array.
+
+
+Omitting any of the above parameters will cause $currentOp to use that parameter's default value. Specify an empty document, as shown below, to use the default values of all parameters.
+
+db.books.aggregate([{$currentOp: {}}])
+
+Constraints - 
+	- $currentOp must be the first stage in the pipeline. 
+	- Pipelines that start with $currentOp can only be run on the admin database. 
+	- For standalone and replica sets that enforce access control, the inprog privilege is required to run $currentOp with allUsers: true. 
+	- For sharded clusters that enforce access control. the inprog privilege is required to run $currentop.

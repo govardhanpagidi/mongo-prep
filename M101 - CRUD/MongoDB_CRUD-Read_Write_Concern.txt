@@ -1,0 +1,114 @@
+Read Concern
+---------------
+The readConcern option allows you to control the consistency and isolation properties of the data read from replica sets and replica set shards.
+
+Through the effective use of write concerns and read concerns, you can adjust the level of consistency and availability guarantees as appropriate, such as waiting for stronger consistency guarantees, or loosening consistency requirements to provide higher availability.
+
+MongoDB drivers updated for MongoDB 3.2 or later support specifying read concern.
+
+Starting in MongoDB 4.4, replica sets and sharded clusters support setting a global default read concern.
+
+Read Concern - local
+------------------------
+The query returns data from the instance with no guarantee that the data has been written to a majority of the replica set members (i.e. may be rolled back).
+
+Read concern "local" is the default for:
+	- read operations against primary
+	- read operations against secondaries if the reads are associated with causally consistent sessions.
+
+Read Concern - Available
+------------------------------
+The query returns data from the instance with no guarantee that the data has been written to a majority of the replica set members (i.e. may be rolled back).
+
+Default for: reads against secondaries if the reads are not associated with causally consistent sessions.
+
+Behaves identical to "local" read concern for unsharded collections.
+
+For a sharded cluster, "available" read concern provides greater tolerance for partitions since it does not wait to ensure consistency guarantees. That is, read concern "available" does not contact the shard's primary nor the config servers for updated metadata. However, this means that a query with "available" read concern may return orphaned documents if the shard is undergoing chunk migrations.
+
+Read Concern - Majority
+-----------------------
+The query returns the data that has been acknowledged by a majority of the replica set members. The documents returned by the read operation are durable, even in the event of failure.
+
+To fulfill read concern "majority", the replica set member returns data from its in-memory view of the data at the majority-commit point. As such, read concern "majority" is comparable in performance cost to other read concerns.
+
+To use read concern level of "majority", replica sets must use WiredTiger storage engine.
+
+Read Concern - Linearizable
+------------------------------
+The query returns data that reflects all successful majority-acknowledged writes that completed prior to the start of the read operation. The query may wait for concurrently executing writes to propagate to a majority of replica set members before returning results.
+
+You cannot use the $out or the $merge stage in conjunction with read concern "linearizable". That is, if you specify "linearizable" read concern for db.collection.aggregate(), you cannot include either stages in the pipeline.
+
+Linearizable read concern guarantees only apply if read operations specify a query filter that uniquely identifies a single document.
+
+Always use maxTimeMS with linearizable read concern in case a majority of data bearing members are unavailable. maxTimeMS ensures that the operation does not block indefinitely and instead ensures that the operation returns an error if the read concern cannot be fulfilled.
+
+Read Concern - Snapshot
+--------------------------
+If the transaction is not part of a causally consistent session, upon transaction commit with write concern "majority", the transaction operations are guaranteed to have read from a snapshot of majority-committed data.
+
+If the transaction is part of a causally consistent session, upon transaction commit with write concern "majority", the transaction operations are guaranteed to have read from a snapshot of majority-committed data that provides causal consistency with the operation immediately preceding the transaction start.
+
+Read concern "snapshot" is only available for use with multi-document transactions.
+
+Regardless of the read concern level, the most recent data on a node may not reflect the most recent version of the data in the system.
+
+Read Concern Support
+--------------------------
+readConcern: { level: <level> } for operations not in multi-document transactions.
+
+For multi-document transactions, you set the read concern at the transaction level, not at the individual operation level. The operations in the transaction will use the transaction-level read concern. Any read concern set at the collection and database level is ignored inside the transaction. If the transaction-level read concern is explicitly specified, the client level read concern is also ignored inside the transaction.
+
+For multi-document transaction, the following read concern levels are available - "local", "majority", "snapshot". You can set the read concern at the transaction start.
+
+Write commands that are part of a multi-document transactions can support the transaction-level read concern.
+
+If unspecified at the transaction start, transactions use the session-level read concern or, if that is unset, the client-level read concern.
+
+The local database does not support read concerns. MongoDB silently ignores any configured read concern for an operation on a collection in the local database.
+
+Write Concern
+---------------
+Write concern describes the level of acknowledgment requested from MongoDB for write operations to a standalone mongod or to replica sets or to sharded clusters. In sharded clusters, mongos instances will pass the write concern on to the shards.
+
+For multi-document transactions, you set the write concern at the transaction level, not at the individual operation level. Do not explicitly set the write concern for individual write operations in a transaction.
+
+Starting in MongoDB 4.4, replica sets and sharded clusters support setting a global default write concern. Operations which do not specify an explicit write concern inherit the global default write concern settings.
+
+{ w: <value>, j: <boolean>, wtimeout: <number> }
+
+w option
+	- w: 1 Requests acknowledgment that the write operation has propagated to the standalone mongod or the primary in a replica set. w: 1 is the default write concern for MongoDB.
+	- w: 0 - fire & forget.Requests no acknowledgment of the write operation. However, w: 0 may return information about socket exceptions and networking errors to the application. 
+	If you specify w: 0 but include j: true, the j: true prevails to request acknowledgment from the standalone mongod or the primary of a replica set.
+	
+w greater than 1 requires acknowledgment from the primary and as many data-bearing secondaries as needed to meet the specified write concern. For example, consider a 3-member replica set with a primary and 2 secondaries. Specifying w: 2 would require acknowledgment from the primary and one of the secondaries. Specifying w: 3 would require acknowledgment from the primary and both secondaries.
+
+Hidden, delayed, and priority 0 members can acknowledge w: <number> write operations.
+
+Delayed secondaries can return write acknowledgment no earlier than the configured slaveDelay.
+
+w:majority
+	- Requests acknowledgment that write operations have propagated to the calculated majority of the data-bearing voting members (i.e. primary and secondaries with members[n].votes greater than 0).
+	- After the write operation returns with a w: "majority" acknowledgment to the client, the client can read the result of that write with a "majority" readConcern.
+
+w: <custom write concern name>
+	- Requests acknowledgment that the write operations have propagated to tagged members that satisfy the custom write concern defined.
+
+j option
+
+The j option requests acknowledgment from MongoDB that the write operation has been written to the on-disk journal.
+
+	- If j: true, requests acknowledgment that the mongod instances, as specified in the w: <value>, have written to the on-disk journal. j: true does not by itself guarantee that the write will not be rolled back due to replica set primary failover.
+	- Changed in version 3.2: With j: true, MongoDB returns only after the requested number of members, including the primary, have written to the journal. Previously j: true write concern in a replica set only requires the primary to write to the journal, regardless of the w: <value> write concern.
+	- Specifying a write concern that includes j: true to a mongod instance that is running without journaling produces an error.
+	- If journaling is enabled, w: "majority" may imply j: true. The writeConcernMajorityJournalDefault replica set configuration setting determines the behavior.
+
+wtimeout
+	- This option specifies a time limit, in milliseconds, for the write concern. wtimeout is only applicable for w values greater than 1.
+	- wtimeout causes write operations to return with an error after the specified limit, even if the required write concern will eventually succeed. When these write operations return, MongoDB does not undo successful data modifications performed before the write concern exceeded the wtimeout time limit.
+	- If you do not specify the wtimeout option and the level of write concern is unachievable, the write operation will block indefinitely. Specifying a wtimeout value of 0 is equivalent to a write concern without the wtimeout option.
+
+
+

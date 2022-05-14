@@ -1,0 +1,58 @@
+TTL Indexes
+---------------
+TTL indexes are special single-field indexes that MongoDB can use to automatically remove documents from a collection after a certain amount of time or at a specific clock time. 
+
+Data expiration is useful for certain types of information like machine generated event data, logs, and session information that only need to persist in a database for a finite amount of time.
+
+db.collection.createIndex( { "lastModifiedDate": 1 }, { expireAfterSeconds: 3600 } )
+
+If the field is an array, and there are multiple date values in the index, MongoDB uses lowest (i.e. earliest) date value in the array to calculate the expiration threshold.
+
+If the indexed field in a document is not a date or an array that holds a date value(s), the document will not expire.
+
+If a document does not contain the indexed field, the document will not expire.
+
+A background thread in mongod reads the values in the index and removes expired documents from the collection.
+
+The TTL index does not guarantee that expired data will be deleted immediately upon expiration. There may be a delay between the time a document expires and the time that MongoDB removes the document from the database.
+
+The background task that removes expired documents runs every 60 seconds. As a result, documents may remain in a collection during the period between the expiration of the document and the running of the background task.
+
+Because the duration of the removal operation depends on the workload of your mongod instance, expired data may exist for some time beyond the 60 second period between runs of the background task.
+
+On replica set members, the TTL background thread only deletes documents when a member is in state primary. The TTL background thread is idle when a member is in state secondary. Secondary members replicate deletion operations from the primary.
+
+Restrictions
+-------------
+	- TTL indexes are a single-field indexes. Compound indexes do not support TTL and ignore the expireAfterSeconds option.
+	- The _id field does not support TTL indexes.
+	- You cannot create a TTL index on a capped collection because MongoDB cannot remove documents from a capped collection.
+	- You cannot use createIndex() to change the value of expireAfterSeconds of an existing index. Instead use the collMod database command in conjunction with the index collection flag. Otherwise, to change the value of the option of an existing index, you must drop the index first and recreate.
+	- If a non-TTL single-field index already exists for a field, you cannot create a TTL index on the same field since you cannot create indexes that have the same key specification and differ only by the options. To change a non-TTL single-field index to a TTL index, you must drop the index first and recreate with the expireAfterSeconds option.
+
+Unique Index
+---------------
+	- Supports both single and compound field index including multikeys. ie. arrays and embedded documents
+	- You cannot specify a unique constraint if the collection already contains data that violates unique constraint.
+	- You may not specify a unique constraint on a hashed index.
+	- For replica sets and sharded clusters, use a rolling procedure to create a unique index but you will need to stop all writes to the collection during procedure. Otherwise, create unique index on primary for replica sets or on mongos for sharded cluster.
+	- Unique constraint prevents separate documents from having the same value for the indexed key. But the same document may have array elements that result in repeating index key values as long as it does not duplicate those of another document. In this case, the repeated index entry is inserted into the index only once.
+	- If a document does not have a value for the indexed field in a unique index, the index will store null value for this document. MongoDB will permit only one document that lacks the unique indexed field. Rest will fail with duplicate key error.
+	- Partial indexes only index the documents in a collection that meet a specified filter expression. If you specify both the partialFilterExpression and a unique constraint, the unique constraint only applies to the documents that meet the filter expression.
+	- A partial index with a unique constraint does not prevent the insertion of documents that do not meet the unique constraint if the documents do not meet the filter criteria. For an example, see Partial Index with Unique Constraint.
+
+For a ranged sharded collection, only the following indexes can be unique:
+	- the index on the shard key
+	- a compound index where the shard key is a prefix
+	- the default _id index; however, the _id index only enforces the uniqueness constraint per shard if the _id field is not the shard key or the prefix of the shard key.
+
+	If the _id field is not the shard key or the prefix of the shard key, _id index only enforces the uniqueness constraint per shard and not across shards. MongoDB expects applications to enforce the uniqueness of the _id values across the shards.
+
+The unique index constraints mean that:
+	- For a to-be-sharded collection, you cannot shard the collection if the collection has other unique indexes.
+	- For an already-sharded collection, you cannot create unique indexes on other fields.
+
+
+
+
+

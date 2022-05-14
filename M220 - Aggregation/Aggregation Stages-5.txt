@@ -1,0 +1,166 @@
+$set
+$skip
+$sort
+$sortByCount
+$unionWith
+$unset
+$unwind
+$listLocalSessions
+
+$skip
+--------
+Skips over the specified number of documents that pass into the stage and passes the remaining documents to the next stage in the pipeline.
+
+{ $skip: <positive integer> }
+
+$skip takes a positive integer that specifies the maximum number of documents to skip.
+
+If using the $skip stage with any of sort functions ($sort or sort() method or sort field of findAndModify), be sure to include at least one field in your sort that contains unique values, before passing results to the $skip stage.
+
+$sort
+--------
+Sorts all input documents and returns them to the pipeline in sorted order.
+
+{ $sort: { <field1>: <sort order>, <field2>: <sort order> ... } }
+
+Sort Order - 1 or -1 or {$meta: "textScore"}
+
+If sorting on multiple fields, sort order is evaluated from left to right.
+
+To achieve sort consistency,include atleast one field in your sort that contains unique values. The easiest way to guarantee this is to include the _id field in your sort query.
+
+When comparing values of different BSON types, MongoDB uses the following comparison order, from lowest to highest
+
+MNN SOA BOB DTRM
+
+$sortByCount
+-------------
+Groups incoming documents based on the value of a specified expression, then computes the count of documents in each distinct group.
+
+Each output document contains two fields: an _id field containing the distinct grouping value, and a count field containing the number of documents belonging to that grouping or category.
+
+The documents are sorted by count in descending order.
+
+{ $sortByCount:  <expression> }
+
+$sortByCount stage is equivalent to the following $group + $sort sequence:
+
+{ $group: { _id: <expression>, count: { $sum: 1 } } },
+{ $sort: { count: -1 } }
+
+$unionWith
+--------------------
+Performs a union of two collections; i.e. $unionWith combines pipeline results from two collections into a single result set. The stage outputs the combined result set (including duplicates) to the next stage.
+
+{ $unionWith: { coll: "<collection>", pipeline: [ <stage1>, ... ] } }
+
+{ $unionWith: "<collection>" }  // Include all documents from the specified collection
+
+coll - The collection or view whose pipeline results you wish to include in the result set.
+pipeline - optional. An aggregation pipeline to apply to the specified coll. The pipeline cannot include $out and $merge stages.
+
+The combined results from the previous stage and the $unionWith stage can include duplicates.To remove the duplicates, you can include a $group stage to group by.
+
+If the $unionWith stage is part of the $lookup pipeline, the $unionWith coll cannot be sharded. For example, in the following aggregation operation, the inventory_q1 collection cannot be sharded:
+
+db.suppliers.aggregate([
+   {
+      $lookup: {
+         from: "warehouses",
+         let: { order_item: "$item", order_qty: "$ordered" },
+         pipeline: [
+            ...
+            { $unionWith: { coll: "inventory_q1", pipeline: [ ... ] } },
+            ...
+         ],
+         as: "stockdata"
+      }
+   }
+])
+
+If the db.collection.aggregate() includes a collation, that collation is used for the operation, ignoring any other collations.
+
+If the db.collection.aggregate() does not include a collation, the db.collection.aggregate() method uses the collation for the top-level collection/view on which the db.collection.aggregate() is run:
+	- If the $unionWith coll is a collection, its collation is ignored.
+	- If the $unionWith coll is a view, then its collation must match that of the top-level collection/view. Otherwise, the operation errors.
+
+Restrictions
+-------------
+	1. An aggregation pipeline cannot use $unionWith inside transactions.
+	2. If the $unionWith stage is part of the $lookup pipeline, the $unionWith coll cannot be sharded.
+	3. The $unionWith pipeline cannot include the $out stage.
+	4. The $unionWith pipeline cannot include the $merge stage.
+
+$unset
+--------------
+Removes/excludes fields from documents.
+
+{ $unset: "<field>" }
+
+{ $unset: [ "<field1>", "<field2>", ... ] }
+
+{ $unset: "<field.nestedfield>" }
+
+{ $unset: [ "<field1.nestedfield>", ...] }
+
+The $unset is an alias for the $project stage that removes/excludes fields:
+
+{ $project: { "<field1>": 0, "<field2>": 0, ... } }
+
+$unwind
+-------------
+Deconstructs an array field from the input documents to output a document for each element. Each output document is the input document with the value of the array field replaced by the element.
+
+You can pass a field path operand or a document operand to unwind an array field.
+
+{ $unwind: <field path> }
+
+You can pass the array field path to $unwind. When using this syntax, $unwind does not output a document if the field value is null, missing, or an empty array.
+
+When you specify the field path, prefix the field name with a dollar sign $ and enclose in quotes.
+
+You can pass a document to $unwind to specify various behavior options.
+
+{
+  $unwind:
+    {
+      path: <field path>,
+      includeArrayIndex: <string>,
+      preserveNullAndEmptyArrays: <boolean>
+    }
+}
+
+path - Field path to an array field. To specify a field path, prefix the field name with a dollar sign $ and enclose in quotes.
+includeArrayIndex - Name of a new field to hold the array index of the element. Cannot start with $.
+preserveNullAndEmptyArrays - Default is false. If false, If path is null or missing or an empty array, $unwind does not output a document. If true, $unwind outputs the document if path is null or missing or an empty array.
+
+Non-array field path - $unwind stage no longer errors on non-array operands. If the operand does not resolve to an array but is not missing, null, or an empty array, $unwind treats the operand as a single element array. If the operand is null, missing, or an empty array, the behavior of $unwind depends on the value of the preserveNullAndEmptyArrays option.
+
+Previously, if a value in the field specified by the field path is not an array, db.collection.aggregate() generates an error.
+
+If you specify a path for a field that does not exist in an input document or the field is an empty array, $unwind, by default, ignores the input document and will not output documents for that input document.
+
+To output documents where the array field is missing, null or an empty array, use the preserveNullAndEmptyArrays option.
+
+$listLocalSessions
+--------------------
+Lists the sessions cached in memory by the mongod or mongos instance.
+
+When a user creates a session on a mongod or mongos instance, the record of the session initially exists only in-memory on the instance; i.e. the record is local to the instance. Periodically, the instance will sync its cached sessions to the system.sessions collection in the config database, at which time, they are visible to $listSessions and all members of the deployment. Until the session record exists in the system.sessions collection, you can only list the session via the $listLocalSessions operation.
+
+The $listLocalSessions operation uses the db.aggregate() method and not the db.collection.aggregate().
+
+To run $listLocalSessions, it must be the first stage in the pipeline.
+
+{ $listLocalSessions: <document> }
+
+Document can be:
+{} - Returns all sessions for current authenticated user if running with access control. Without access control, returns all sessions.
+{users: [{user: <user>, db: <db>},...]} - Returns all sessions for the specified users.
+{allUsers: true} - Returns all sessions for all users.
+
+$listLocalSessions is not allowed in transactions.
+
+db.aggregate( [  { $listLocalSessions: { allUsers: true } } ] )
+db.aggregate( [  { $listLocalSessions: { } } ] )
+db.aggregate( [ { $listLocalSessions: { users: [ { user: "myAppReader", db: "test" } ] } } ] )

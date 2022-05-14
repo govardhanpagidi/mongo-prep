@@ -1,0 +1,61 @@
+deleteMany()
+--------------
+db.collection.deleteMany(
+   <filter>,
+   {
+      writeConcern: <document>,
+      collation: <document>
+   }
+)
+
+	- Removes all documents that match the filter from a collection.
+	- To delete all documents in a collection, pass in an empty document ({ }).
+	- Returns acknowledged and deletedCount
+	- Throws WriteError if used on a capped collection. To remove all documents from a capped collection, use db.collection.drop() instead.
+	- When using an hint, If you specify an index that does not exist, the operation errors.
+
+deleteOne()
+-----------------
+db.collection.deleteOne(
+   <filter>,
+   {
+      writeConcern: <document>,
+      collation: <document>,
+      hint: <document|string>        // Available starting in MongoDB 4.4
+   }
+)
+	- Removes a single document from a collection.
+	- Specify an empty document { } to delete the first document returned in the collection.
+	- Returns acknowledged and deletedCount
+	- Throws WriteError if used on a capped collection. To remove all documents from a capped collection, use db.collection.drop() instead.
+
+Delete operations do not drop indexes, even if deleting all documents from a collection.
+
+findOneAndDelete() provides a sort option. The option allows for the deletion of the first document sorted by the specified order.
+
+remove()
+-------------
+db.collection.remove(
+   <query>,
+   <justOne>
+)
+
+or 
+
+db.collection.remove(
+   <query>,
+   {
+     justOne: <boolean>,
+     writeConcern: <document>,
+     collation: <document>
+   }
+)
+
+	- <query> Specifies deletion criteria using query operators. To delete all documents in a collection, pass an empty document ({}).
+	- To limit the deletion to just one document, set justOne: true. Omit to use the default value of false and delete all documents matching the deletion criteria.
+	- Returns WriteResult containing nRemoved with number of documents removed.
+	- By default, remove() removes all documents that match the query expression. Specify the justOne option to limit the operation to removing a single document. To delete a single document sorted by a specified order, use the findAndModify() method.
+	- You cannot use the remove() method with a capped collection.
+	- Remove on a sharded collection that specify the justOne: true option must include the shard key or the _id field. Otherwise, will return an error.
+
+db.collection.remove({}) removes all documents in a collection. This is not equivalent to drop() method. using drop is more efficient to drop the entire collection including indexes.

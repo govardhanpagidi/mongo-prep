@@ -1,0 +1,132 @@
+Write Concern for Replica Sets
+Read Preference
+Server Selection Algorithm
+
+Write Concern for Replica Sets
+------------------------------
+Describes the number of data-bearing members (i.e. the primary and secondaries, but not arbiters) that must acknowledge a write operation before the operation returns as successful. 
+
+A member can only acknowledge a write operation after it has received and applied the write successfully.
+
+For clusters where members have journaling enabled, combining "majority" write concern with j : true can prevent rollback of write concern acknowledged data.
+
+Acknowledgement Behavior
+---------------------------
+Standalone - 
+	w: 1 with j:false - Acknowledges after applying the write in memory
+	w: 1 with j:true - Acknowledges after applying the write to on-disk journal
+	w: 1 with j unspecified - Acknowledges after applying the write in memory
+	w: majority with j:false - Acknowledges after applying the write in memory
+	w: majority with j:true - Acknowledges after applying the write to on-disk journal
+	w: majority with j unspecified - Acknowledges after applying the write to on-disk journal if running with journalling
+
+Replica Sets - 
+	w: majority with j:false - Acknowledges after applying the write in memory
+	w: majority with j:true - Acknowledges after applying the write to on-disk journal
+	w: majority with j unspecified - Depends on parameter writeConcernMajorityJournalDefault. 
+		If writeConcernMajorityJournalDefault is true, acknowledgement requires writing to on-disk journal.
+		If writeConcernMajorityJournalDefault is false, acknowledgement requires writing to in memory(j:false)
+	w: number with j:false - Acknowledges after applying the write in memory
+	w: number with j:true - Acknowledges after applying the write to on-disk journal
+	w: number with j unspecified - Acknowledges after applying the write in memory (j: false)
+	
+
+You can modify the default write concern for a replica set by issuing the setDefaultRWConcern command.
+
+You can tag the members of the replica sets and use the resulting tag sets to create custom write concerns.
+
+Read Preference
+-----------------
+Read preference describes how MongoDB clients route read operations to the members of a replica set.
+
+Read preference consists of the read preference mode and optionally, a tag set, the maxStalenessSeconds option, and the hedged read option. Hedged read option is available for MongoDB 4.4+ sharded clusters for reads that use non-primary read preference.
+
+Read preference mode - primary, primaryPreferred, secondary, secondaryPreferred, nearest
+
+nearest - 
+	- Operations read from a random eligible replica set member, irrespective of whether that member is a primary or secondary, based on a specified latency threshold. 
+	- The operation considers the following when calculating latency:
+		- localThresholdMS connection string option
+		- maxStalenessSeconds read preference option
+		- Any specified tag sets
+
+localThresholdMS - Default is 15 milliseconds.The size of the latency window for selecting among multiple suitable MongoDB instances.
+
+maxStalenessSeconds - no default value.When a secondary's estimated staleness exceeds maxStalenessSeconds, the client stops using it for read operations. Not compatible with primary.
+
+When selecting a server for a read operation with maxStalenessSeconds, clients estimate how stale each secondary is by comparing the secondary's last write to that of the primary. The client will then direct the read operation to a secondary whose estimated lag is less than or equal to maxStalenessSeconds.
+
+If there is no primary, the client uses the secondary with the most recent write for the comparison.
+
+You must specify a maxStalenessSeconds value of 90 seconds or longer: specifying a smaller maxStalenessSeconds value will raise an error. 
+
+tag sets - 
+	- For read operations, you can specify a tag set in the read preferences to help direct read operations to members that have specific tag(s).
+	- For write operations, you can use the tags to create a custom write concern.
+
+{ "<tag1>": "<string1>", "<tag2>": "<string2>",... }
+
+Multi-document transactions that contain read operations must use read preference primary. All operations in a given transaction must route to the same member.
+
+For aggregation pipeline operations that include the $out or $merge stages, the pipeline runs on the primary member regardless of read preference setting.
+
+For mapReduce operations, only "inline" mapReduce operations that do not write data support read preference. Otherwise, mapReduce operations run on the primary member.
+
+Hedged Reads - With hedged reads, the mongos instances can route read operations to two replica set members per each queried shard and return results from the first respondent per shard.
+
+You can specify the use of hedged reads for non-primary read preferences.
+
+Common Use Cases for non-primary read preferences
+-----------------------------------------------------
+1. Running systems operations that do not affect the front-end application.
+2. Providing local reads for geographically distributed applications.
+3. Maintaining availability during a failover.
+
+DO NOT use secondary or secondaryPreferred to provide extra capacity for reads, because:
+	- All members of a replica have roughly equivalent write traffic; as a result, secondaries will service reads at roughly the same rate as the primary.
+	- Replication is asynchronous and there is some amount of delay between a successful write operation and its replication to secondaries. Reading from a secondary can return stale data; reading from different secondaries may result in non-monotonic reads.
+	- Distributing read operations to secondaries can compromise availability if any members of the set become unavailable because the remaining members of the set will need to be able to handle all application requests.
+
+Sharding increases read and write capacity by distributing read and write operations across a group of machines, and is often a better strategy for adding capacity.
+
+Maximize Consistency
+--------------------
+To avoid stale reads, use primary read preference and majority read concern.
+
+To increase consistency, you can disable automatic failover; however, disabling automatic failover sacrifices availability.
+
+Maximize Availability - To permit read operations when possible, use primaryPreferred.
+Minimize Latency - Use nearest. while low-latency, nearest does not guarantee consistency.
+
+Query from Geographically Distributed Members - Use replica set tags that reflect the location of the instance. Although nearest already favors members with low network latency, including the tag makes the choice more predictable.
+
+Use secondary over secondaryPreferred - For specific dedicated queries (ETL, reporting etc.), you may shift the load from primary by using the secondary read preference mode. For this use case, secondary is preferable over secondaryPreferred, because if all secondaries are unavailable and your replica set has enough arbiters to prevent primary from stepping down, then primary will receive all traffic. If primary is unable to handle this load, queries will compete with writes.
+
+In general, avoid deploying arbiters in replica sets and use an odd number of data-bearing nodes instead. If you must deploy arbiters, avoid deploying more than one arbiter per replica set.
+
+Server Selection Algorithm
+--------------------------------
+MongoDB drivers use a Server Selection algorithm to choose which replica set member to use or, when connected to multiple mongos instances, which mongos instance to use.
+
+Server selection occurs once per operation.
+
+Multi-document transactions that contain read operations must use read preference primary. All operations in a given transaction must route to the same member.
+
+Read Preference	for Replica Sets
+	- primary - default
+	- secondary 
+		- Driver assembles a list of eligible secondary members. maxStalenessSeconds and tags are checked.
+		- Driver determines which eligible member is closest (ie. member with lowest avg network round-trip time)
+		- Calculates latency window = avg round-trip time for closest server + localThresholdMS.
+		- Pare down the list of eligible members that fall within this window
+		- Driver randomly chooses an eligible member from this list.
+	- nearest - same as secondary but includes primary also in the list of eligible members
+	- primaryPreferred - primary if available. secondary if primary unavailable.
+	- secondaryPreferred - same as secondary but choses primary if secondary cannot be selected.
+
+Read Preference for Shared Clusters
+	- Load Balancing - Determines the closest mongos instance and calculates latency window. Driver will then load balance randomly across the mongos instances that fall within the latency window.
+
+	- For sharded clusters that have replica set shards, mongos applies the read preference when reading from the shards. Server selection is governed by the read preference and replication.localPingThresholdMs settings. The read preference is re-evaluated for each operation.
+
+Hedged Reads - Starting in version 4.4, mongos supports hedged reads for non-primary read preferences modes. That is, mongos can send an additional read to another member, if available, to hedge the read operation if using non-primary read preferences. The additional read sent to hedge the read operation uses the maxTimeMS value of maxTimeMSForHedgedReads.

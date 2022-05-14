@@ -1,0 +1,56 @@
+Hashed sharding uses either a single field hashed index or a compound hashed index (New in 4.4) as the shard key to partition data across your cluster.
+
+Sharding on a Single Field Hashed Index
+----------------------------------------------
+Hashed sharding provides a more even data distribution across the sharded cluster at the cost of reducing Targeted Operations vs. Broadcast Operations. 
+
+Post-hash, documents with "close" shard key values are unlikely to be on the same chunk or shard - the mongos is more likely to perform Broadcast Operations to fulfill a given ranged query. 
+
+mongos can target queries with equality matches to a single shard.
+
+Sharding on a Compound Hashed Index
+-----------------------------------
+MongoDB 4.4 adds support for creating compound indexes with a single hashed field. To create a compound hashed index, specify hashed as the value of any single index key when creating the index.
+
+Compound hashed index compute the hash value of a single field in the compound index; this value is used along with the other fields in the index as your shard key.
+
+Compound hashed sharding supports features like zone sharding, where the prefix (i.e. first) non-hashed field or fields support zone ranges while the hashed field supports more even distribution of the sharded data. 
+
+Compound hashed sharding also supports shard keys with a hashed prefix for resolving data distribution issues related to monotonically increasing fields.
+
+MongoDB automatically computes the hashes when resolving queries using hashed indexes. Applications do not need to compute hashes.
+
+MongoDB hashed indexes truncate floating point numbers to 64-bit integers before hashing. For example, a hashed index would store the same value for a field that held a value of 2.3, 2.2, and 2.9. To prevent collisions, do not use a hashed index for floating point numbers that cannot be reliably converted to 64-bit integers (and then back to floating point). MongoDB hashed indexes do not support floating point values larger than 2 to the power of 53.
+
+convertShardkeyToHashed() returns the hashed value for the given object. Uses the same hash function as the hashed index and can be used to see what the hashed value would be for a key.
+
+Choose a field with good cardinality or a large number of different values for hashed shard key.
+
+Hashed Keys are ideal for shard keys with fields that change montonically like ObjectId values or timestamps. Good example is _id field with only ObjectId values.
+
+Ranged Sharding
+-------------------
+Range-based sharding involves dividing data into contiguous ranges determined by the shard key values. 
+
+In this model, documents with "close" shard key values are likely to be in the same chunk or shard. This allows for efficient queries where reads target documents within a contiguous range. 
+
+However, both read and write performance may decrease with poor shard key selection. 
+
+Range-based sharding is the default sharding methodology if no other options such as those required for Hashed Sharding or zones are configured.
+
+Ranged sharding is most efficient when the shard key displays the following traits:
+	- Large Shard Key Cardinality
+	- Low Shard Key Frequency
+	- Non-Shard Key Montonicity
+
+Deploying a Sharded Cluster
+-------------------------------
+1. Create the Config Server Replica Set
+2. Create the Shard Replica Sets
+3. Start a mongos for the sharded cluster (specify the sharding.ConfigDB to the config server replica set name and atleast one member of the replica set)
+Start mongos using the below command:
+mongos --config <path-to-config>	
+4. Connect to the Sharded Cluster (mongos instance)
+5. Add Shard to the Cluster (sh.addShard ("replSetName/shardSvr replica details")
+6. Enable Sharding for a Database (sh.enableSharding("<database>")). MongoDB assigns a primary shard at this point.
+7. Shard a Collection (sh.shardCollection()) using hashed or range-based sharding

@@ -1,0 +1,57 @@
+Single Field Indexes
+--------------------
+	- Can be created ascending or descending. 
+	- Ordering does not matter, MongoDB can use index on either directions for both query and sort
+
+Compound Indexes
+------------------
+Starting in MongoDB 4.4, Compound indexes may contain a single hashed index field.You will receive an error if you attempt to create a compound index that contains more than one hashed index field. Earlier versions does not allow hashed index field for Compound indexes.
+
+For single-field indexes, the sort order of keys doesn't matter because MongoDB can traverse the index in either direction. 
+
+For compound indexes, sort order can matter in determining whether the index can support a sort operation.
+
+Sorting using indexes
+------------------------
+If MongoDB cannot use an index or indexes to obtain the sort order, MongoDB must perform a blocking sort operation on the data. A blocking sort indicates that MongoDB must consume and process all input documents to the sort before returning results. Blocking sorts do not block concurrent operations on the collection or database.
+
+If MongoDB requires using more than 100 megabytes of system memory for the blocking sort operation, MongoDB returns an error unless the query specifies cursor.allowDiskUse() (New in MongoDB 4.4). allowDiskUse() allows MongoDB to use temporary files on disk to store data exceeding the 100 megabyte system memory limit while processing a blocking sort operation.
+
+In a blocking SORT, all input must be consumed by the sort step before it can produce output. In a non-blocking, or indexed sort, the sort step scans the index to produce results in the requested order.
+
+So, Sort operations that use an index often have better performance than blocking sorts. 
+
+As a result of changes to sorting behavior on array fields in MongoDB 3.6, when sorting on an array indexed with a multikey index the query plan includes a blocking SORT stage. The new sorting behavior may negatively impact performance.
+
+Sort with a Single Field Index - If an ascending or a descending index is on a single field, the sort operation on the field can be in either direction.
+
+Sort on Multiple Fields - Create a compound index to support sorting on multiple fields.
+
+Sort and Index Prefix - If the sort keys correspond to the index keys or an index prefix, MongoDB can use the index to sort the query results. A prefix of a compound index is a subset that consists of one or more keys at the start of the index key pattern.
+
+Sort and Non-prefix Subset of an Index - An index can support sort operations on a non-prefix subset of the index key pattern. To do so, the query must include equality conditions on all the prefix keys that precede the sort keys.
+
+Index Use and Collation - 
+	- To use an index for string comparisons, an operation must also specify the same collation. That is, an index with a collation cannot support an operation that performs string comparisons on the indexed fields if the operation specifies a different collation.
+	- For a compound index where the index prefix keys are not strings, arrays, and embedded documents, an operation that specifies a different collation can still use the index to support comparisons on the index prefix keys.
+
+MongoDB Index Restrictions
+------------------------------
+- A collection cannot have more than 64 indexes
+- Total size of index must be less than 1024 bytes
+- Limit of 32 fields for any compound index
+- Blocking sort operation returns error if it requires more than 100MB of system memory. To avoid, use cursor.allowDiskUse() to use temporary files on disk.
+
+Index Intersection
+---------------------
+Query optimizer may be able to use index intersection.
+
+In practice, the query optimizer rarely selects plans that use index intersection.
+
+Hash-based index intersection is disabled by default and sort-based index intersection is disfavored in plan selection. The optimizer behaves in this fashion in order to prevent bad plan selection.
+
+Schema designs should not rely on index intersection. Instead, compound indexes should be used.
+
+Future improvements to the query optimizer may allow the system to better identify cases where an index intersection plan would be beneficial.
+
+Index intersection does not eliminate the need for creating compound indexes. However, because both the list order (i.e. the order in which the keys are listed in the index) and the sort order (i.e. ascending or descending), matter in compound indexes, a compound index may not support a query condition that does not include the index prefix keys or that specifies a different sort order.

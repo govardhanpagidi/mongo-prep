@@ -1,0 +1,79 @@
+Storage Engines
+---------------
+The storage engine is the component of the database that is responsible for managing how data is stored, both in memory and on disk. 
+
+MongoDB supports multiple storage engines, as different engines perform better for specific workloads. Choosing the appropriate storage engine for your use case can significantly impact the performance of your applications.
+
+Starting in version 4.2, MongoDB removes the deprecated MMAPv1 storage engine.
+
+WiredTiger (Default)
+-----------------------
+WiredTiger is the default storage engine starting in MongoDB 3.2. It is well-suited for most workloads and is recommended for new deployments. WiredTiger provides a document-level concurrency model, checkpointing, and compression, among other features.
+
+In MongoDB Enterprise, WiredTiger also supports Encryption at Rest. See Encrypted Storage Engine.
+
+mongod --storageEngine mmapv1 to use mmap v1 storage engine.
+
+WiredTiger uses document-level concurrency control for write operations - optimistic concurrency control.
+
+Snapshots & Checkpoints 
+------------------------
+	- WiredTiger uses MultiVersion Concurrency Control (MVCC). WT provides a point-in-time snapshot of the data to the operation (consistent view from in-memory data). 
+	- WT writes all data in a snapshot to a disk in a consistent way at checkpoints during intervals of 60 seconds. MongoDB can recover from the last valid checkpoint. New checkpoint is created, accessible and permanent when WT's metadata table is atomically updated to reference the new checkpoint.
+	- Using WT, even without journaling, MongoDB can recover from the last checkpoint. however to recover from the changes  made after the last checkpoint, run with journaling.
+
+Journal
+------------
+	- WT uses a write-ahead log (ie. Journal) in combination with checkpoints to ensure data durability.
+	- WiredTiger journal is compressed using the snappy compression library. other compressions are zlip and zstd.
+	- zlib provides higher compression rate at the cost of CPU. zstd provides higher compression rate and lower CPU usage compared to zlib.
+	- storage.wiredTiger.engineConfig.journalCompressor setting.
+	- If a log record less than or equal to 128 bytes (the mininum log record size for WiredTiger), WiredTiger does not compress that record.
+	- Starting in MongoDB 4.0, you cannot specify --nojournal option or storage.journal.enabled: false for replica set members that use the WiredTiger storage engine.
+	- You can disable journaling for standalone instances by setting storage.journal.enabled to false, which can reduce the overhead of maintaining the journal. For standalone instances, not using the journal means that, when MongoDB exits unexpectedly, you will lose all data modifications prior to the last checkpoint.
+
+Compression
+------------------
+	- With WiredTiger, MongoDB supports compression for all collections and indexes. Compression minimizes storage use at the expense of additional CPU.
+	- By default, WiredTiger uses block compression with the snappy compression library for all collections and prefix compression for all indexes.
+	- For collections, other block compression librarires are also available - zlib and zstd.
+	- storage.wiredTiger.collectionConfig.blockCompressor and  storage.wiredTiger.indexConfig.prefixCompression settings for changing compression
+
+Memory Use
+--------------
+	- With WiredTiger, MongoDB utilizes both the WiredTiger internal cache and the filesystem cache.
+	- Starting in MongoDB 3.4, the default WiredTiger internal cache size is the larger of either 50% of (RAM-1GB) or 256MB
+	- WT internal cache uses different representations versus on-disk format.
+	- storage.wiredTiger.engineConfig.cacheSizeGB for WT internal cache size. values can range from 0.25 GB to 10000 GB.
+
+In-Memory Storage Engine
+----------------------------
+In-Memory Storage Engine is available in MongoDB Enterprise. Rather than storing documents on-disk, it retains them in-memory for more predictable data latencies.
+
+Starting in MongoDB Enterprise version 3.2.6, the in-memory storage engine is part of general availability (GA) in the 64-bit builds. 
+
+Other than some metadata and diagnostic data, the in-memory storage engine does not maintain any on-disk data, including configuration data, indexes, user credentials, etc.
+
+By avoiding disk I/O, the in-memory storage engine allows for more predictable latency of database operations.
+
+Uses document-level concurrency for write operations.
+
+The in-memory storage engine does not persist data after process shutdown.
+
+In-memory storage engine requires that all its data (including indexes, oplog if mongod instance is part of a replica set, etc.) must fit into the specified --inMemorySizeGB (256MB to 10TB). Default size is 50% of (physical RAM - 1 GB)
+
+The in-memory storage engine is non-persistent and does not write data to a persistent storage. Non-persisted data includes application data and system data, such as users, permissions, indexes, replica set configuration, sharded cluster configuration, etc.
+
+As such, the concept of journal or waiting for data to become durable does not apply to the in-memory storage engine.
+
+If any voting member of a replica set uses the in-memory storage engine, you must set writeConcernMajorityJournalDefault to false.
+
+Transactions - Starting in MongoDB 4.2, transactions are supported on replica sets and sharded clusters where the primary uses the WiredTiger storage engine, and the secondary members use either the WiredTiger storage engine or the in-memory storage engines.
+
+Deployment Architectures
+-------------------------
+	- In addition to running as standalones, mongod instances that use in-memory storage engine can run as part of a replica set or part of a sharded cluster.
+	- You can deploy mongod instances that use in-memory storage engine as part of a replica set. For example, as part of a three-member replica set, you could have 2 mongod instances running on in-memory storage engine and 1 mongod instance with WT as a hidden member.
+	- With this, only the mongod instance with in-memory engine can become the primary. Even if both in-memory engines crash and restart, they can sync from the member running with WT. The hidden mongod instance with WT persists data to disk including user data, indexes and replication config information.
+	- Similar setup for sharded clusters.
+

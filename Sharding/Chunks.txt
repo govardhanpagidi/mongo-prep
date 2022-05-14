@@ -1,0 +1,57 @@
+Default Chunk Size - 64 MB.
+
+Allowed range - 1MB to 1024 MB.
+
+use config
+db.settings.save( { _id:"chunksize", value: <sizeInMB> } )
+
+Limitations
+-----------
+	- Automatic splitting only occurs on insert or update.
+	- If you lower the chunk size, it may take time for all chunks to split to the new size.
+	- Splits cannot be undone.
+	- If you increase the chunk size, existing chunks grow only through insertion or updates until they reach the new size.
+	- The allowed range of the chunk size is between 1 and 1024 megabytes, inclusive.
+
+Chunk Size
+-----------
+	- Small chunks lead to a more even distribution of data at the expense of more frequent migrations. This creates expense at the query routing (mongos) layer.
+	- Large chunks lead to fewer migrations. This is more efficient both from the networking perspective and in terms of internal overhead at the query routing layer. But, these efficiencies come at the expense of a potentially uneven distribution of data.
+	- Chunk size affects the Maximum Number of Documents Per Chunk to Migrate.
+	- Chunk size affects the maximum collection size when sharding an existing collection. Post-sharding, chunk size does not constrain collection size.
+
+Maximum Number of Documents Per Chunk to Migrate - 
+-------------------------------------------------
+	- If No of documents in a chunk is 1.3 times greater than (configured chunk size/ avgObjSize), MongoDB cannot move a chunk.
+
+For chunks that are too large to migrate:
+	- attemptToBalanceJumboChunks: true allows the balancer to migrate the chunks too large to move as long as the chunks are not labeled jumbo.
+	- moveChunk command with forceJumbo: true, the chunks may or may not be labeled jumbo.
+
+For many deployments, it makes sense to avoid frequent and potentially spurious migrations at the expense of a slightly less evenly distributed data set.
+
+Chunk Splits
+------------------------
+	- Splitting when a chunk grows beyond a specified chunk size or if the number of documents in the chunk exceeds Maximum Number of Chunks to Migrate.
+	- Inserts and Updates may trigger splits.
+	- Splits are an efficient meta-data change.
+	- Splits may lead to uneven distribution of the chunks for a collection across the shards. In such cases, the balancer redistributes chunks across shards.
+
+Chunk Migration
+------------------
+MongoDB migrates chunks in a sharded cluster to distribute the chunks of a sharded collection evenly among shards. Migrations may be either:
+	- Manual. Only use manual migration in limited cases, such as to distribute data during bulk inserts
+	- Automatic. The balancer process automatically migrates chunks when there is an uneven distribution of a sharded collection's chunks across the shards.
+
+Balancing
+----------
+Balancer manages chunk migrations. If the difference in number of chunks between largest and smallest shard exceeds migration thresholds, the balancer begins migrating chunks across the cluster to ensure an even distribution of data.
+
+Migration thresholds:
+	For fewer than 20 chunks - migration threshold is 2
+	20-79 chunks - migration threshold is 4
+	80 or greater - migration threshold is 8
+
+Indivisible / Jumbo Chunks - Occurs when a chunk represents a single shard key value with high frequency. Use refineCollectionShardKey to address this. 
+	- For Divisible Chunks, try to split the chunk using sh.splitAt(<collection>, <query with shard key value>) or splitFind().
+	- For indivisible chunks, use refineCollectionShardKey or Clear Jumbo Flag.

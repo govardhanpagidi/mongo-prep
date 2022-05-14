@@ -1,0 +1,102 @@
+The shard key is either an indexed field or indexed compound fields that determines the distribution of the collection's documents among the cluster's shards.
+
+sh.shardCollection(<namespace>, <key>) // Optional parameters omitted
+
+sh.shardCollection(namespace, key, unique, options)
+-------------------------------------------------------
+namespace - db.collection name
+key 	-{ <shard key field1>: <1|"hashed">, ... }
+	- 1 for range-sharding.
+	- "hashed" for hashed sharding.
+
+unique - specify true to ensure that the underlying index enforces a unique constraint. Defaults to false. You cannot specify true for hashed shard keys. If specifying the options document, you must explicitly specify the value for unique.
+
+options:
+	numInitialChunks - Minimum number of chunks to create when sharding an empty collection with a hashed shard key. Defaults to 2. Must be less than 8192 per shard.
+
+	collation - {locale: simple}
+
+	presplitHashedZones - Specify true for initial chunk creation and distribution for zones to be evenly distributed if zones and zone ranges are already defined. Specify false otherwise. If false specified and zones & zone ranges have been defined, then numInitialChunks has no effect.
+
+	for range or single-field hashed shard key, the numInitialChunks option has no effect if zones and zone ranges have been defined for the empty collection.
+	
+refineCollectionShardKey
+-------------------------
+To add a suffix field or fields to the existing key to create the new shard key.
+
+FCV of 4.4 or above is required. 
+
+Must be run against the admin database and require refineCollectionShardKey privilege.
+
+db.adminCommand( {
+   refineCollectionShardKey: "<database>.<collection>",
+   key: { <existing key specification>, <suffix1>: <1|"hashed">, ... }
+} )
+
+Refining a collection's shard key allows for a more fine-grained data distribution and can address situations where the existing key has led to jumbo (i.e. indivisible) chunks due to insufficient cardinality.
+
+Considerations - Index Existence, Unique Index if current shard index is unique (and cannot be hashed), Index Collation ({locale: "simple"} if sharded collection has a non-simple default collation.
+
+Shard Key Indexes
+------------------
+All sharded collections must have an index that supports the shard key - either on the shard key or a compound index where shard key is a prefix.
+
+For empty collections, sh.shardCollection() will create an index on the shard key if it does not already exist. If collection is not empty, you must create the index first.
+
+Unique Indexes
+--------------------
+MongoDB can enforce a uniqueness constraint on a ranged shard key index. you cannot specify a unique constraint on hashed index.
+
+Only following indexes can be unique for a ranged sharded collection:
+	- index on the shard key
+	- Compound index where the shard key is a prefix
+	- default _id index
+
+If _id index is not the shard key or prefix of the shard key, _id index only enforces the unique constraint per shard and not across shards.
+
+Choosing a shard key
+--------------------
+Consider cardinality, frequency and montonicity of a potential shard key.
+
+When sharding a collection that is not empty, the shard key can constrain the maximum supported collection size for the initial sharding operation only. A sharded collection can grow to any size after successful sharding.
+
+Cardinality
+	- The cardinality of a shard key determines the maximum number of chunks the balancer can create. This can reduce or remove the effectiveness of horizontal scaling in the cluster.
+	- higher the better
+	- If your data model requires sharding on a key that has low cardinality, consider using a compound index using a field that has higher relative cardinality.
+
+
+Frequency
+	- the frequency of the shard key represents how often a given value occurs in the data.
+	- lower the better
+	- If your data model requires sharding on a key that has high frequency, consider using a compound index using a field that has low frequency value.
+
+Montonicity
+	- A shard key on a value that increases or decreases monotonically is more likely to distribute inserts to a single shard within the cluster.
+	- If your data model requires sharding on a key that changes monotonically, consider using Hashed Sharding.
+
+Change a Document's Shard Key
+-------------------------------
+When updating the shard key value,
+	- You must run on a mongos. Do not issue the operation directly on shard.
+	- You must run either in a transaction or as a retryable write.
+	- You must include an equality condition on the full shard key in the query filter.
+	- Take precaution to avoid accidentally removing the shard key when changing a document's shard key value.
+
+Missing Shard Key
+--------------------
+Starting in version 4.4, documents in sharded collections can be missing the shard key fields.
+
+Missing shard keys fall within the same chunk range as shard keys with null values. 
+
+To target documents with missing shard key fields, you can use the { $exists: false } filter condition on the shard key fields.
+
+If you specify an null equality match filter condition (e.g. { x: null }), the filter matches both those documents with missing shard key fields and those with shard key fields set to null.
+
+Some write operations, such as a write with an upsert specification, require an equality match on the shard key. In those cases, to target a document that is missing the shard key, include another filter condition in addition to the null equality match. For example:
+
+{ _id: <value>, <shardkeyfield>: null } // _id of the document missing shard key
+
+To set the missing shard key fields, you can use the following operations on mongos
+	- update with multi:true or multi:false
+	- findAndModify()

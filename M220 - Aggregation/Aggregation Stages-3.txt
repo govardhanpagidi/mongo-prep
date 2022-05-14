@@ -1,0 +1,181 @@
+$limit
+$listSessions
+$lookup
+$match
+$merge
+
+$limit
+-------
+Limits the number of documents passed to the next stage in the pipeline.
+
+{ $limit: <positive integer> }
+
+$limit takes a positive integer that specifies the maximum number of documents to pass along.
+
+
+If using the $limit stage with any of - $sort aggregation stage, sort() method or sort field to the findAndModify command, be sure to include atleast one field in your sort that contains unique values, before passing to the $limit stage.
+
+Sorting on fields that contain duplicate values may return an inconsistent sort order for those duplicate fields over multiple executions, especially when the collection is actively receiving writes.
+
+The easiest way to guarantee sort consistency is to include the _id field in your sort query.
+
+
+$listSessions
+--------------
+Lists all sessions stored in the system.sessions collection in the config database. These sessions are visible to all members of the MongoDB deployment.
+
+To run $listSessions, it must be the first stage in the pipeline.
+
+{ $listSessions: <document> }
+
+{ $listSessions: {} } - Returns all sessions for the current authenticated user if running with access control. If running without access control, returns all sessions.
+
+{$listSessions: {users: [{user: <user>, db: <db>,...]) - Returns all sessions for the specified users. If running with access control, the authenticated user must have privileges with listSessions action on the cluster to list sessions for other users.
+
+{$listSessions: {allUsers: true}} = Returns all sessions for all users. If running with access control, the authenticated user must have privileges with listSessions action on the cluster.
+
+$listSessions is not allowed in transactions.
+
+From the system.sessions collection, the following aggregation operation lists all sessions:
+
+use config
+db.system.sessions.aggregate( [  { $listSessions: { } } ] )
+db.system.sessions.aggregate( [  { $listSessions: { users: [{user: "myUser", db: "myDB"}] } } ] )
+db.system.sessions.aggregate( [  { $listSessions: { allUsers: true } } ] )
+
+$lookup
+-----------
+Performs a left outer join to an unsharded collection in the same database to filter in documents from the "joined" collection for processing.
+
+To each input document, the $lookup stage adds a new array field whose elements are the matching documents from the "joined" collection. The $lookup stage passes these reshaped documents to the next stage.
+
+{
+   $lookup:
+     {
+       from: <collection to join>,
+       localField: <field from the input documents>,
+       foreignField: <field from the documents of the "from" collection>,
+       as: <output array field>
+     }
+}
+
+from - unsharded collection in the same database to join with
+localField - if not present, treated as having null value
+foreignField - if not present, treated as having null value
+as - array field to add. if already exists, it gets overwritten.
+	
+For join conditions and uncorrelated sub-queries besides a single equality match:
+{
+   $lookup:
+     {
+       from: <collection to join>,
+       let: { <var_1>: <expression>, …, <var_n>: <expression> },
+       pipeline: [ <pipeline to execute on the collection to join> ],
+       as: <output array field>
+     }
+}
+
+let - specifies variables to use in the pipeline field stages. Use the variable expressions to access the fields from the documents input to the $lookup stage. The pipeline cannot directly access the input document fields. Instead, first define the variables for the input document fields, and then reference the variables in the stages in the pipeline.
+	- To reference variables in the pipeline stages, use the "$$<variable>" syntax.
+	- $match stage requires the use of $expr operator to access the let variables. without $expr operator, $match can refer to fields in a document but cannot access variables defined by $lookup let clause. The $expr operator only uses indexes on the from collection for equality matches. Non-equality match queries, such as range queries, cannot use the indexes on the from collection.
+	- Other non-$match stages in the pipeline do not require the use of $expr operator to access the variables.
+
+Considerations:- 
+	If performing an aggregation that involves multiple views, such as with $lookup or $graphLookup, the views must have the same collation.
+
+Restrictions:
+	- You cannot include the $out or the $merge stage in the $lookup stage. That is, when specifying a pipeline for the joined collection, you cannot include either stage in the pipeline field.
+	- In the $lookup stage, the from collection cannot be sharded. However, the collection on which you run the aggregate() method can be sharded. Alternatively, to join multiple sharded collections, perform manual lookups by modifying client applications or use embedded data model or an Atlas Data Lake $lookup.
+
+	
+$match
+---------
+Filters the documents to pass only the documents that match the specified condition(s) to the next pipeline stage.
+
+{ $match: { <query> } }
+
+Query syntax is identical to the read operation query syntax. Use $expr query expression for raw aggregation expressions.
+
+Restrictions - 
+	- You cannot use $where in $match queries as part of the aggregation pipeline.
+	- You cannot use $near or $nearSphere in $match queries as part of the aggregation pipeline. As an alternative, you can either:
+		- Use $geoNear stage instead of $match stage.
+		- Use $geoWithin stage query operator with $center or $centerSphere in the $match stage.
+	- To use $text in the $match stage, the $match stage has to be the first stage of the pipeline. Views do not support text search.
+
+$merge
+---------
+Writes the results of the aggregation pipeline to a specified collection. The $merge operator must be the last stage in the pipeline.
+
+	- Can output to a collection in the same or different database.
+	- Creates a new collection if the output collection does not already exist.
+	- Can incorporate results (insert new documents, merge documents, replace documents, keep existing documents, fail the operation, process documents with a custom update pipeline) into an existing collection.
+	- Can output to a sharded collection. Input collection can also be sharded.
+
+On-demand materialized views - $merge can incorporate the pipeline results into an existing output collection rather than perform a full replacement of the collection. This functionality allows users to create on-demand materialized views, where the content of the output collection is incrementally updated when the pipeline is run.
+
+{ $merge: {
+     into: <collection> -or- { db: <db>, coll: <collection> },
+     on: <identifier field> -or- [ <identifier field1>, ...],  // Optional
+     let: <variables>,                                         // Optional
+     whenMatched: <replace|keepExisting|merge|fail|pipeline>,  // Optional
+     whenNotMatched: <insert|discard|fail>                     // Optional
+} }
+
+Using all default options for $merge:
+{ $merge: <collection> } // Output collection is in the same database
+
+into - Output collection. If collection does not exist, $merge creates the collection. For replica set or standalone, if the output database not exist, $merge also creates the database. For sharded cluster, the specified output database must already exist. The output collection can be a sharded collection.
+
+on - Unique fields. If array, order does not matter and you cannot specify the same name multiple times. Aggregation results document must contain the field(s) specified in the on, unless the on field is _id field. If _id field is missing, MongoDB adds it automatically. The specified field(s) cannot contain a null or an array value.
+$merge requires unique index fields on on identifier.
+
+If output collection does not exist, on should default to _id with unique index.
+
+If existing output collection is unsharded, the on identifier defaults to the _id field.
+
+If existing output collection is sharded, the on identifier defaults to all the shard key fields and _id field.
+
+WhenMatched - 
+	replace - Replaces the existing document in the output collection with the matching results document. Replacement document cannot modify the _id value (or shard key value for sharded collection). Otherwise, the operation results in an error. To avoid this error, if the on field does not include the _id field, remove the _id in the aggregation results to avoid the error, such as with a preceding $unset stage.
+	keepExisting or	merge or fail
+	or an aggregation pipeline  with $addFields, $set, $project, $unset, $replaceRoot, $replaceWith
+
+whenNotMatched - insert | discard| fail
+
+If the _id field is not present in a document from the aggregation pipeline results, the $merge stage generates it automatically.
+
+
+db.sales.aggregate( [
+   { $project: { _id: 0 } },
+   { $merge : { into : "newCollection" } }
+] )
+
+The output collection is created when $merge writes the first document into the collection and is immediately visible.
+
+If the aggregation fails, any writes completed by the $merge before the error will not be rolled back.
+
+The $merge stage can output to a sharded collection. When the output collection is sharded, $merge uses the _id field and all the shard key fields as the default on identifier. If you override the default, the on identifier must include all the shard key fields:
+
+The $merge errors if the $merge results in a change to an existing document's _id value or shard key value.
+
+When $merge outputs to the same collection that is being aggregated, documents may get updated multiple times or the operation may result in an infinite loop. This behavior occurs when the update performed by $merge changes the physical location of documents stored on disk. When the physical location of a document changes, $merge may view it as an entirely new document, resulting in additional updates. 
+
+Restrictions
+-----------------
+	- An aggregation pipeline cannot use $merge inside a transaction.
+	- View definition cannot include the $merge stage. If the view definition includes nested pipeline (e.g. the view definition includes $facet stage), this $merge stage restriction applies to the nested pipelines as well.
+	- $lookup stage's nested pipeline cannot include the $merge stage.
+	- $lookup stage's nested pipeline cannot include the $merge stage.
+	- $unionWith stage's nested pipeline cannot include the $merge stage.
+	- The $merge stage cannot be used in conjunction with read concern "linearizable".
+
+$merge vs $out
+-----------------
+$merge can replace an existing document in the output collection if the aggregation results contain a document or documents that match based on the on specification. As such, $merge can replace all documents in the existing collection if the aggregation results include matching documents for all existing documents in the collection and you specify "replace" for whenMatched.
+
+However, to replace an existing collection regardless of the aggregation results, use $out instead.
+
+$merge can incorporate results (insert new documents, merge documents, replace documents, keep existing documents, fail the operation, process documents with a custom update pipeline) into an existing collection. $out replaces the output collection completely if it already exists.
+
+$merge can output to a sharded collection whereas $out cannot.

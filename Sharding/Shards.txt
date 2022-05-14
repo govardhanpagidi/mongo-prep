@@ -1,0 +1,33 @@
+A shard contains a subset of sharded data for a sharded cluster. Together, the cluster's shards hold the entire data set for the cluster.
+
+Users, clients, or applications should only directly connect to a shard to perform local administrative and maintenance operations.
+
+Performing queries on a single shard only returns a subset of data. Connect to the mongos to perform cluster level operations, including read or write operations.
+
+MongoDB does not guarantee that any two contiguous chunks reside on a single shard.
+
+Primary Shard 
+=----------------
+- Holds unsharded collections. mongos selects the primary shard when creating a new database by picking the shard in the cluster that has the least amount of data. mongos uses the totalSize field returned by the listDatabases command.
+
+db.adminCommand({listDatabases: 1})
+
+To change the primary shard for a database, use the movePrimary command.
+
+db.adminCommand( { movePrimary: <databaseName>, to: <newPrimaryShard> } )
+
+movePrimary first changes the primary shard in the cluster metadata, and then migrates all un-sharded collections to the specified shard.
+
+After starting movePrimary, do not perform any read or write operations against any unsharded collection in that database until the command completes. Read or write operations issued against those collections during the migration can result in unexpected behavior, including potential failure of the migration operation or loss of data.
+
+Shard Status - Use sh.status()
+
+Shard Cluster Security
+-----------------------
+Use Internal/Membership Authentication to enforce intra-cluster security and prevent unauthorized cluster components from accessing the cluster. You must start each mongod in the cluster with the appropriate security settings in order to enforce internal authentication.
+
+Each shard supports Role-Based Access Control (RBAC) for restricting unauthorized access to shard data and operations. 
+
+Start each mongod in the replica set with the --auth option to enforce RBAC. Alternatively, enforcing Internal/Membership Authentication for intra-cluster security also enables user access controls via RBAC.
+
+Each shard has its own shard-local users. These users cannot be used on other shards, nor can they be used for connecting to the cluster via a mongos.

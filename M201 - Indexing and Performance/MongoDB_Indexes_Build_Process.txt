@@ -1,0 +1,103 @@
+Index Build Process
+-----------------------
+	- Optimized process from Mongo4.4 that holds an exclusive lock on the collection at the beginning and end of the index build.
+	- Combination of Foreground & background processes
+	- Foreground index build - Faster but requires locking of databases for r/w operations for the duration of index build
+	- Background index build - slower and had less efficient results, but allowed r/w access to the database and its collection during the build process.
+	- Any constraint violations such as unique indexes, mongod throws an error at the end of the index build and terminates.
+	- Note that constraint violations can exist during start of the index build but not at the end of the index build.
+	- To mitigate this - Validate that no documents in the collection violates index constraints or stop all writes to the collection from applications that cannot guarantee violation-free write operations.
+	- On Sharded collections, ensure the same as it may otherwise lead to inconsistent index creation on some shards (without duplicates) but not on others (shards with duplicates)
+
+Index build impact on database performance
+------------------------------------------
+Building indexes during time periods where the target collection is under heavy write load can result in reduced write performance and longer index builds. Consider designating a maintenance window and perform index builds during this window.
+
+createIndexes supports building one or more indexes on a collection. createIndexes uses a combination of memory and temporary files on disk to complete index builds. The default limit on memory usage for createIndexes is 200 megabytes (for versions 4.2.3 and later) and 500 (for versions 4.2.2 and earlier), shared between all indexes built using a single createIndexes command. Once the memory limit is reached, createIndexes uses temporary disk files in a subdirectory named _tmp within the --dbpath directory to complete the build.
+
+You can override the memory limit by setting the maxIndexBuildMemoryUsageMegabytes server parameter. Setting a higher memory limit may result in faster completion of index builds. However, setting this limit too high relative to the unused RAM on your system can result in memory exhaustion and server shutdown.
+
+If the host machine has limited available free RAM, you may need to schedule a maintenance period to increase the total system RAM before you can modify the mongod RAM usage.
+
+Index Builds on Replicated Environments
+-----------------------------------------
+Requires featureCompatibilityVersion 4.4+ - Each mongod in the replica set or sharded cluster must have featureCompatibilityVersion set to at least 4.4 to start index builds simultaneously across replica set members.
+
+MongoDB 4.4 running featureCompatibilityVersion: "4.2" builds indexes on the primary before replicating the index build to secondaries.
+
+By default, MongoDB 4.4 and later build indexes simultaneously on all data-bearing replica set members.
+
+For sharded clusters, the index build occurs only on shards containing data for the collection being indexed. 
+
+The primary requires a minimum number of data-bearing voting members (i.e commit quorum), including itself, that must complete the build before marking the index as ready for use.
+
+By default, index builds use a commit quorum of "votingMembers", or all data-bearing voting members. To start an index build with a non-default commit quorum, specify the commitQuorum parameter to
+createIndexes or db.collection.createIndex() or db.collection.createIndexes()
+
+To modify the commit quorum required for an in-progress simultaneous index build, use the setIndexCommitQuorum command.
+
+Index builds can impact replica set performance. For workloads which cannot tolerate performance decrease due to index builds, consider performing a rolling index build process. 
+
+Rolling Index Build Process on Replica Sets
+--------------------------------------------
+Rolling index builds take at most one replica set member out at a time, starting with the secondary members, and builds the index on that member as a standalone. Rolling index builds require at least one replica set election.
+
+Considerations:
+	- Unique Indexes 
+		- To create unique indexes using the rolling index procedure, you must STOP all the write operations to the collection during this procedure. Otherwise, you may end up with inconsistent data across the replica set members. 
+		- If you cannot STOP all writes to collection during this procedure, do not use this procedure. Instead build your unique index using createIndex on the primary for replica set.
+	
+	- Oplog size - Ensure that your oplog is large enough to permit the indexing or re-indexing operation to complete without falling too far behind to catch up.
+
+Procedure:
+	1. Stop one secondary and restart as a standalone
+	2. Build the index
+	3. Restart the program mongod as a replica set member and allow replication to catch-up on this member
+	4. Once the member catches up with other members, Repeat the step 1-3 for the remaining secondaries 	
+	5. Build the index on the primary
+		- step down the primary using rs.stepDown() (Upon successful stepdown, the current primary becomes a secondary and the replica set members elect a new primary)
+		- restart it as standalone
+		- build index on the former primary
+		- restart the program mongod as a replica set member 
+
+Rolling Index Build Process on Sharded Clusters
+-----------------------------------------------
+Index builds on sharded clusters occur only on those shards which contain data for the collection being indexed. 
+
+Rolling index builds take at most one shard replica set member out at a time, starting with the secondary members, and builds the index on that member as a standalone. Rolling index builds require at least one replica set election per shard.
+
+Considerations:
+	- Unique Indexes 
+		- To create unique indexes using the rolling index procedure, you must STOP all the write operations to the collection during this procedure. Otherwise, you may end up with inconsistent data across the replica set members. 
+		- If you cannot STOP all writes to collection during this procedure, do not use this procedure. Instead build your unique index using createIndex on the mongos for a sharded cluster.
+	
+	- Oplog size - Ensure that your oplog is large enough to permit the indexing or re-indexing operation to complete without falling too far behind to catch up.
+
+Before creating the index, validate that no documents in the collection violate the index constraints. If a collection is distributed across shards and a shard contains a chunk with duplicate documents, the create index operation may succeed on the shards without duplicates but not on the shard with duplicates. To avoid leaving inconsistent indexes across shards, you can issue the db.collection.dropIndex() from a mongos to drop the index from the collection.
+
+Procedure:
+	1. Stop the balancer by running sh.stopBalancer() on mongos. If a migration is in progress, the system will complete the in-progress migration before stopping the balancer. To verify that the balancer is disabled, run sh.getBalancerState(), which returns false if the balancer is disabled.
+	2. Determine  distribution of the collection 
+		- From the mongo shell connected to the mongos, refresh the cached routing table for that mongos to avoid returning stale distribution information for the collection. Once refreshed, run db.collection.getShardDistribution() for the collection you wish to build the index.
+		db.adminCommand( { flushRouterConfig: "test.records" } );
+		db.records.getShardDistribution();
+
+	From the output, you can identify the shards that contain collection chunks and only build the indexes for those shards.
+	3. For an affected shard, stop the mongod process on a secondary, restart as a standlone, build index and restart as a replica set member (similar to rolling index build fo replica set members)
+	4. Repeat the procedure for the remaining secondaries for the shard and finally primary
+	5. Repeat the same for other affected shards
+	6. Restart the balancer by running sh.startBalancer() on mongos
+
+A sharded collection has an inconsistent index if the collection does not have the exact same indexes (including the index options) on each shard that contains chunks for the collection. Although inconsistent indexes should not occur during normal operations, inconsistent indexes can occur, such as:
+		- When a user is creating an index with a unique key constraint and one shard contains a chunk with duplicate documents. In such cases, the create index operation may succeed on the shards without duplicates but not on the shard with duplicates.
+		- When a user is creating an index across the shards in a rolling manner but either fails to build the index for an associated shard or incorrectly builds an index with different specification.
+
+Starting in MongoDB 4.4 (and 4.2.6), the config server primary periodically checks for index inconsistencies across the shards for sharded collections. To configure these periodic checks, see enableShardedIndexConsistencyCheck and shardedIndexConsistencyCheckIntervalMS.
+
+Finding Inconsistent Indexes across shards
+------------------------------------------
+The command serverStatus returns the field shardedIndexConsistency to report on index inconsistencies when run on the config server primary.
+
+To resolve the inconsistency where an index is missing from the collection on a particular shard(s), Perform a rolling index build for the collection on the affected shard(s) or Issue an index build db.collection.createIndex() from a mongos instance. The operation only builds the collection's index on the shard(s) missing the index.
+
+To resolve where the index properties differ across the shards, Drop the incorrect index from the collection on the affected shard(s) and rebuild the index. To rebuild the index, you can either Perform a rolling index build for the collection on the affected shard(s) or Issue an index build db.collection.createIndex() from a mongos instance. The operation only builds the collection's index on the shard(s) missing the index.

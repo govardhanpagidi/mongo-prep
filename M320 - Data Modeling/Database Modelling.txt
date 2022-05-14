@@ -1,0 +1,45 @@
+MongoDB
+	- Schema-less is a misconception. All database have a base schema. Flexible Schema Database.
+	- Stores in BSON.
+	- JSON 
+		- Human readable and writable
+		- Machine parsable and generatable
+		- Language independent
+
+constraints in database modelling
+	- RAM, Hardware, Application network latency, DB server / MongoDb max limit, ACID compliance
+	- Tips
+		- Keep frequently used documents in RAM (working sets)
+		- Keep indexes in RAM
+		- Prefer SSDs to HDDs	
+		- Infrequently accessed data can use HDDs
+
+Data modelling methodology
+	- Define workload (data size, important read/writes, quantify ops, qualify ops)
+	- Relationships between models (identify, quantify, link or embed them)
+	- Apply Design Patterns
+	- Design / Transformations  (apply the ones needed for optimizations)
+	- Schema
+		- Scenarios
+		- Business Domain expert
+		- Existing system schema / production logs & stats
+
+modelling for simplicity vs performance
+simplicity will favor embedding
+performance will create more collections
+
+Data Model Design - 
+	- Embedded or De-normalized Data model - Suitable for One-to-One and One-to-Many relationships if many is not very large.
+	- Normalized Data Model - References between documents. Use when: 
+		- embedding would result in duplication but would not provided sufficient read performance advantages to outweigh the implications of the duplication.
+		- to represent complex many-to-many relationships
+		- to model large hierarchial data sets.
+
+Operational Factors and Data Models
+	- Atomicity (Embedded Data Model and Multi-Document Transaction)
+	- Sharding 
+	- Indexes (each index requires atleast 8 KB of data space)
+	- Large Number of Collections (Distinct collections with minimal overheads)
+	- Collection contains large number of small documents (Rolling up small documents into large)
+	- Storage Optimization of Small Documents (custom _id field, shorter field names, embed documents etc.)
+	- Data Lifecycle Management (for ex. TTL feature and capped collections for using only recently inserted documents as it follows FIFO management of inserted documents)

@@ -1,0 +1,269 @@
+Create Operations
+	- insertOne()
+	- insertMany()
+	- insert()
+
+Update Operations
+	- updateOne()
+	- updateMany()
+	- update()
+	- replaceOne()
+	- findOneAndReplace()
+	- findOneAndUpdate()
+	- findOneAndModify()
+	- save()
+	- bulkWrite()
+
+insertOne
+-----------
+db.collection.insertOne(
+   <document>,
+   {
+      writeConcern: <document>
+   }
+)
+	- Not compatible with explain(). Use insert instead.
+	- Do not explicitly set the write concern for the operation if run in a transaction
+	- Returns acknowledgement boolean and insertedId
+	- throws writeError or writeConcernError
+
+insertMany
+------------
+db.collection.insertMany(
+   [ <document 1> , <document 2>, ... ],
+   {
+      writeConcern: <document>,
+      ordered: <boolean>
+   }
+)
+	- Not compatible with explain(). Use insert instead.
+	- Do not explicitly set the write concern for the operation if run in a transaction
+	- Documents are inserted by order in default. For unordered inserts, change ordered to false. mongod may reorder documents to increase performance.
+	- max limit of 100,000 writes in a group. if exceeds, multiple groups are created by driver.
+	- Executing an ordered write on a sharded collection will generally be slower than unordered list as each operation must wait for the previous operation to finish.
+	- Returns acknowledgement boolean and array of insertedIds
+	- Throws BulWrite Exception
+
+insert
+------------
+db.collection.insert(
+   <document or array of documents>,
+   {
+     writeConcern: <document>,
+     ordered: <boolean>
+   }
+)
+	- Inserts single or multiple documents (array of documents) into a collection.
+	- Returns WriteResult object for single inserts and a bulkWriteResult object for bulk inserts.
+
+Update
+----------------
+db.collection.update(
+   <query>,
+   <update>,
+   {
+     upsert: <boolean>,
+     multi: <boolean>,
+     writeConcern: <document>,
+     collation: <document>,
+     arrayFilters: [ <filterdocument1>, ... ],
+     hint:  <document|string>        // Available starting in MongoDB 4.2
+   }
+)
+	- By default, update method updates a single document. Include the option multi: true to update all documents that match the query criteria.
+	- Returns WriteResult document that contains the status of the operation (nMatched, nModified, nUpserted)
+	- You cannot specify multi: true when performing a replacement, i.e., when the <update> document contains only field:value expressions. A WriteError error "multi update is not supported for replacement-style update" will be thrown
+	- The db.collection.explain().update() does not modify the documents.
+
+Update with upsert:true
+--------------------------------
+	- When you execute an update() with upsert: true and the query matches no existing document, MongoDB will refuse to insert a new document if the query specifies conditions on the _id field using dot notation. If match is found, update operation will be performed.
+	- If multiple, identical upserts are issued at roughly the same time, it is possible for update() used with upsert: true to create duplicate documents. See Upsert with Unique Index for more information.
+	- If the <update> parameter is an aggregation pipeline, the update creates a base document from the equality clauses in the <query> parameter, and then applies the pipeline to the document to create the document to insert.
+
+ArrayFilters on update
+--------------------------
+	- Use the $[<identifier>] filtered positional operator to define an identifier, which you then reference in the array filter documents. The <identifier> must begin with a lowercase letter and contain only alphanumeric characters.
+	- You can include the same identifier multiple times in the update document; however, for each distinct identifier ($[identifier]) in the update document, you must specify exactly one corresponding array filter document. That is, you cannot specify multiple array filter documents for the same identifier. 
+
+For example, to update all elements that are greater than or equal to 100 in the grades array, use the filtered positional operator $[<identifier>] with the arrayFilters option as below:
+db.students.update(
+   { grades: { $gte: 100 } },
+   { $set: { "grades.$[element]" : 100 } },
+   {
+     multi: true,
+     arrayFilters: [ { "element": { $gte: 100 } } ]
+   }
+)
+	
+Update on Sharded Collections
+-------------------------------
+	- Update with upsert: true on a sharded collection should include the full shard key in the filter. For documents that is missing shard key, use the null equality match in conjunction with another filter. For example, { _id: <value>, <shardkeyfield>: null } // _id of the document missing shard key
+	- To use db.collection.update() with multi: false on a sharded collection, you must include an exact match on the _id field or target a single shard (such as by including the shard key).
+	- To target a document that is missing the shard key, you can use the null equality match in conjunction with another filter condition (such as on the _id field). For example:{ _id: <value>, <shardkeyfield>: null } // _id of the document missing shard key
+	- Starting in MongoDB 4.2, you can update a document's shard key value unless the shard key field is the immutable _id field. Before MongoDB 4.2, a document's shard key field value is immutable.
+	- To modify the existing shard key value with db.collection.update():
+		- You must run on a mongos. Do not issue the operation directly on the shard.
+		- You must run either in a transaction or as a retryable write.
+		- You must specify multi: false.
+		- You must include an equality query filter on the full shard key.
+	- To use db.collection.update() to set the document's missing shard key, you must run on a mongos. Do not issue the operation directly on the shard.
+
+UpdateOne
+----------------
+db.collection.updateOne(
+   <filter>,
+   <update>,
+   {
+     upsert: <boolean>,
+     writeConcern: <document>,
+     collation: <document>,
+     arrayFilters: [ <filterdocument1>, ... ],
+     hint:  <document|string>        // Available starting in MongoDB 4.2.1
+   }
+)
+	- Returns matchedCount, modifiedCount, upsertedId, acknowledged
+	- If an update operation changes the document size in a capped collection, the operation will fail.
+	- Not compatible with explain(). Use update() instead.
+
+updateMany
+-----------------
+db.collection.updateMany(
+   <filter>,
+   <update>,
+   {
+     upsert: <boolean>,
+     writeConcern: <document>,
+     collation: <document>,
+     arrayFilters: [ <filterdocument1>, ... ],
+     hint:  <document|string>        // Available starting in MongoDB 4.2.1
+   }
+)
+
+Save
+------------
+db.collection.save(<document>, {writeConcern: <document>})
+	- Returns WriteResult object that contains the status of the operation.
+	- If the document does not contain an _id field, then the save() method calls the insert() method. If the document contains an _id field, then the save() method is equivalent to an update with the upsert option set to true and the query predicate on the _id field.
+	- Starting in MongoDB 4.2, the save() method cannot be used with sharded collections that are not sharded by _id, and attempting to do so will result in an error. Use the insertOne() or replaceOne() method instead.
+
+bulkWrite
+--------------
+db.collection.bulkWrite(
+   [ <operation 1>, <operation 2>, ... ],
+   {
+      writeConcern : <document>,
+      ordered : <boolean>
+   }
+)
+	- Default executes in order. Execution is stopped if an error is encountered. Set ordered: false if order is not important and execution will continue with the rest of the operations if an operation errors. MongoDB will re-order queries to increase performance.
+	- Returns acknowledged, count for each write operation, array of _id for each successfully inserted or upserted documents.
+	- Restrictions on capped collections. updateOne and updateMany throws error if size of the document is modified. replaceOne throws errror if replacement document has a larger size than the original document. deleteOne and deleteMany throw WriteError if used on a capped collection.
+	- Total no of operations in each group is 100,000.
+
+Strategies for Bulk inserts into Sharded collection
+--------------------------------------------------------
+	1. Pre-split the collection - if the sharded collection is empty, then the collection has only one initial chunk, which resides on a single shard. MongoDB must take time to receive data, create splits and distribute the split chunks to the available shards. To avoid this performance cost, you can pre-split the collection.
+	2. Unordered write to mongos - To improve write performance to sharded clusters, use bulkWrite() with the optional parameter ordered set to false. mongos can attempt to send the writes to multiple shards simultaneously. For empty collections, first pre-split the collection 
+	3. Avoid Montonic Throttling - If your shard key increases monotonically during an insert, then all inserted data goes to the last chunk in the collection, which will always end up on a single shard.Therefore, the insert capacity of the cluster will never exceed the insert capacity of that single shard. If your insert volume is larger than what a single shard can process, and if you cannot avoid a monotonically increasing shard key, then consider the following modifications to your application:
+		- Reverse the binary bits of the shard key. This preserves the information and avoids correlating insertion order with increasing sequence of values.
+		- Swap the first and last 16-bit words to "shuffle" the inserts.
+
+$currentDate
+------------------
+	- Sets the value of the field to current date, either as timestamp or date. 
+	- { $currentDate: { <field1>: <typeSpecification1>, ... } }
+	- { $currentDate: { lastModifiedDate: true, lastModifiedTimestamp: {$type: timestamp}, lastModifiedDate2: {$type: date }
+	- If the field does not exist, $currentDate adds the field to the document.
+
+Aggregation Alternative to $currentDate
+-------------------------------------------
+	$$NOW and $$CLUSTER_TIME for date and timestamp
+
+replaceOne
+-------------
+db.collection.replaceOne(
+   <filter>,
+   <replacement>,
+   {
+     upsert: <boolean>,
+     writeConcern: <document>,
+     collation: <document>,
+     hint: <document|string>                   // Available starting in 4.2.1
+   }
+)	- Replaces a single document within the collection based on the filter.
+	- Cannot contain update operators.
+	- Returns matchedCount, modifiedCount, upsertedId, acknowledged
+	- Replaces the first matching document in the collection.
+
+findOneAndReplace()
+--------------------
+db.collection.findOneAndReplace(
+   <filter>,
+   <replacement>,
+   {
+     projection: <document>,
+     sort: <document>,
+     maxTimeMS: <number>,
+     upsert: <boolean>,
+     returnNewDocument: <boolean>,
+     collation: <document>
+   }
+)
+	- Finds a single document and replaces the document matching the filter.
+	- To use db.collection.findOneAndReplace() on a sharded collection, the query filter must include an equality condition on the shard key.
+	- Returns the original document that was replaced. To return the replaced document, include returnNewDocument: true option. Default is false.
+	- Includes projection and sort. If sort specified, documents are sorted by the filter (before replacing).
+	- maxTimeMS - specifies a timelimit in millsecs within which the operation must complete. Throws error if limit is exceeded.
+	- upsert: true inserts replacement document if no docs match filter. Returns null after inserting document unless returnNewDocument is true.
+
+findOneAndUpdate()
+--------------------
+db.collection.findOneAndUpdate(
+   <filter>,
+   <update document or aggregation pipeline>, // Changed in MongoDB 4.2
+   {
+     projection: <document>,
+     sort: <document>,
+     maxTimeMS: <number>,
+     upsert: <boolean>,
+     returnNewDocument: <boolean>,
+     collation: <document>,
+     arrayFilters: [ <filterdocument1>, ... ]
+   }
+)
+	- Finds a single document and updates the document matching the filter.
+	- Updates the first matching document in the collection that matches the filter. The sort parameter can be used to influence which document is updated.
+	- To use db.collection.findOneAndUpdate() on a sharded collection, the query filter must include an equality condition on the shard key.
+	- arrayFilters is not available for updates that use an aggregation pipeline.
+
+findAndModify()
+-----------------------
+db.collection.findAndModify({
+    query: <document>,
+    sort: <document>,
+    remove: <boolean>,
+    update: <document or aggregation pipeline>, // Changed in MongoDB 4.2
+    new: <boolean>,
+    fields: <document>,
+    upsert: <boolean>,
+    bypassDocumentValidation: <boolean>,
+    writeConcern: <document>,
+    collation: <document>,
+    arrayFilters: [ <filterdocument1>, ... ]
+});
+	- Modifies and returns a single document. By default, the returned document does not include the modifications made on the update. To return the document with the modifications made on the update, use the new option
+	- Will select only one document to modify
+	- Must specify either the remove or update field.
+	- new option set to true returns the modified document. Ignored for remove operations. defaults to false.
+	- Returns removed document for remove operations if query matches a document. Null otherwise.
+	- For update operations, if new is not set or false, returns original document if match is found. Null otherwise.
+	- For update operations, if new is true, returns modified document if match is found. Newly Inserted document if upsert: true, Null otherwise.
+	- To use db.collection.findOneAndModify() on a sharded collection, the query filter must include an equality condition on the shard key.
+	- arrayFilters is not available for updates that use an aggregation pipeline.
+	comparison with update method,	
+		- By default, both updates single document however update will modify more than one document if multi: true.
+		- Sort can be used to provide some measure of control in findAndModify whereas update does not have sort option.
+		- findAndModify returns the pre-modified version of the document when new is set to false. update method returns only WriteResult object. You will need to use find along with other conditions to get the updated document.
+		- Both methods atomically update the document.
+	- Upsert: true updates if a match is found and inserts a new document if no match. if no match is found, Upsert: true will insert new document and return empty document {} if sort option is provided. Null if sort option is not included.

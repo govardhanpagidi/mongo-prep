@@ -1,0 +1,49 @@
+Updates with aggregation pipeline
+---------------------------------------
+$addFields - alias with $set
+$set
+$project - alias with $unset
+$unset
+$replaceRoot - alias with $replaceWith
+$replaceWith
+
+$addFields (same as $set from MongoDB 4.2)
+---------------
+{ $addFields: { <newField>: <expression>, ... } }
+	- Adds new fields to documents.
+	- If the name of the new field is the same as an existing field name (including _id), $addFields overwrites the existing value of that field with the value of the specified expression.
+	- To add an element to an existing array field with $addFields or $set, use with $concatArrays. 
+
+$project (alias with $unset)
+------------
+{ $project: { <specification(s)> } }
+	- Passes along the documents with the requested fields to the next stage in the pipeline. The specified fields can be existing fields from the input documents or newly computed fields.
+	- Exclude fields conditionally using the REMOVE (example: if (), then: "$$REMOVE, else: ) in aggregation expressions
+	- Exclude Fields using <field>:0
+	- If you specify the exclusion of a field other than _id, you cannot employ any other $project specification forms: i.e. if you exclude fields, you cannot also specify the inclusion of fields, reset the value of existing fields, or add new fields. This restriction does not apply to conditional exclusion of a field using the REMOVE variable.
+	- $unset can be used to exclude fields.
+	- to add fields, specify the field name and set its value to some expression. Also use $addFields or $set.
+	- To set a field value directly to a numeric or boolean literal, use the $literal operator. Otherwise, $project treats the numeric or boolean literal as a flag for inclusion or exclusion.
+	- By specifying a new field and setting its value to the field path of an existing field, you can effectively rename a field.
+	- Use square brackets [] to directly create new array fields. if fields are non-existent, the operation substitues null as the value for that field.
+	- For embedded documents, you can either use dot notation or nested documents but not a mix of both. For example, contact.address.country: 1 or contact: {address: {country: 1}} is valid. Whereas contact: {"address.country": 1} is invalid.
+	- You cannot specify both an embedded document and a field within that embedded document in the same projection. For example: { $project: { contact: 1, "contact.address.country": 1 } }
+ will result in a path collision error.
+	- MongoDB 3.4 and later produces an error if the $project specification is an empty document.
+
+$unset
+----------
+{ $unset: "<field>" }
+{ $unset: [ "<field1>", "<field2>", ... ] }
+	- Removes one or more fields.
+	- use dot notation for removing embedded fields.
+
+$replaceRoot
+-------------
+{ $replaceRoot: { newRoot: <replacementDocument> } }
+	- Replaces the input document with the specified document.The operation replaces all existing fields in the input document, including the _id field. 
+	- Alias for $replaceWith (from MongoDB 4.2)
+	- You can promote an existing embedded document to the top level, or create a new document for promotion
+	- If the <replacementDocument> is not a document or resolves to a missing document, $replaceRoot errors and fails.
+	- $replaceRoot fails if one the documents does not have the field. Use $replaceRoot with $mergeObjects to avoid missing fields.
+	- Alternatively, use $exists in $match stage or $ifNull to avoid missing field errors.

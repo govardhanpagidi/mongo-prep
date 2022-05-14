@@ -1,0 +1,73 @@
+The architecture of a replica set affects the set's capacity and capability. 
+
+The standard replica set deployment for production system is a three-member replica set. These sets provide redundancy and fault tolerance. Avoid complexity when possible, but let your application requirements dictate the architecture.
+
+Strategies:
+	1. Determine the number of members - Add members in a replica set according to these strategies.
+	2. Maximum number of voting members - A replica set can have up to 50 members, but only 7 voting members. If the replica set already has 7 voting members, additional members must be non-voting members.
+	3. Deploy an odd number of members - 
+		- Ensure that the replica set has an odd number of voting members. A replica set can have up to 7 voting members.
+		- If you have an even number of voting members, deploy another data bearing voting member or, if constraints prohibit against another data bearing voting member, an arbiter.
+		- An arbiter does not store a copy of the data and requires fewer resources. As a result, you may run an arbiter on an application server or other shared process.
+		- With no copy of the data, it may be possible to place an arbiter into environments that you would not place other members of the replica set. Consult your security policies.
+		-  pv1 increases the likelihood of w:1 rollbacks compared to pv0 for replica sets with arbiters.
+		- In general, avoid deploying more than one arbiter per replica set.
+
+	4. Consider Fault Tolerance
+		- Fault tolerance for a replica set is the number of members that can become unavailable and still leave enough members in the set to elect a primary. 
+		-  In other words, it is the difference between the number of members in the set and the majority of voting members needed to elect a primary.
+		- Without a primary, a replica set cannot accept write operations. Fault tolerance is an effect of replica set size, but the relationship is not direct. 
+		- Adding a member to the replica set does not always increase the fault tolerance. However, in these cases, additional members can provide support for dedicated functions, such as backups or reporting.
+
+	5. Use Hidden and Delayed Members for Dedicated Functions - Add hidden or delayed members to support dedicated functions, such as backup or reporting.
+
+	6. Load Balance on Read-Heavy-Deployments 
+		- In a deployment with very high read traffic, you can improve read throughput by distributing reads to secondary members. As your deployment grows, add or move members to alternate data centers to improve redundancy and availability.
+		- Distributing replica set members across two data centers provides benefit over a single data center. In a two data center distribution, If one of the data centers goes down, the data is still available for reads unlike a single data center distribution.
+		- If the data center with a minority of the members goes down, the replica set can still serve write operations as well as read operations.
+		- However, if the data center with the majority of the members goes down, the replica set becomes read-only.
+		- If possible, distribute members across at least three data centers. 
+		- For config server replica sets (CSRS), the best practice is to distribute across three (or more depending on the number of members) centers. If the cost of the third data center is prohibitive, one distribution possibility is to evenly distribute the data bearing members across the two data centers and store the remaining member in the cloud if your company policy allows.
+		- Always ensure that the main facility is able to elect a primary.
+
+	7. Add Capacity Ahead of Demand	- The existing members of a replica set must have spare capacity to support adding a new member. Always add new members before the current demand saturates the capacity of the set.
+	8. Distribute Members Geographically 
+		- To protect your data in case of a data center failure, keep at least one member in an alternate data center. If possible, use an odd number of data centers, and choose a distribution of members that maximizes the likelihood that even with a loss of a data center, the remaining replica set members can form a majority or at minimum, provide a copy of your data.
+		- To ensure that the members in your main data center be elected primary before the members in the alternate data center, set the members[n].priority of the members in the alternate data center to be lower than that of the members in the primary data center.
+	9. Target Operations with Tag Sets - Use replica set target sets to target read operations to specific members or to customize write concern to request acknowledgement from specific members.
+	10. Use Journaling to protect against failures - MongoDB enables journaling by default. Journaling protects against data loss in the event of service interruptions, such as power failures and unexpected reboots.
+	11. Hostnames - When possible, use a logical DNS hostname instead of an ip address, particularly when configuring replica set members or sharded cluster members. The use of logical DNS hostnames avoids configuration changes due to ip address changes.
+
+Replica Set Naming - If your application connects to more than one replica set, each set should have a distinct name. Some drivers group replica set connectinons by replica set name.
+
+Deployment patterns - Three-Member Replica Sets, Replica Sets across two or more data centers
+
+Three-Member Replica Sets
+----------------------------
+	1 Primary and 2 secondaries (P-S-S) - 2 copies of data set. Additional Fault tolerance & high availability.
+	1 Primary, 1 Secondary and 1 Arbiter (P-S-A) - 1 copy of data set. Arbiter requires fewer resources, but at the expense of more limited redundancy and fault tolerance.
+	
+Replica Sets Across Two or More Data Centers
+---------------------------------------------
+Distributing replica set members across geographically distinct data centers adds redundancy and provides fault tolerance if one of the data centers is unavailable.
+
+To protect your data in case of a data center failure, keep at least one member in an alternate data center. If possible, use an odd number of data centers, and choose a distribution of members that maximizes the likelihood that even with a loss of a data center, the remaining replica set members can form a majority or at minimum, provide a copy of your data.
+
+Examples - 3-member replica set with possible distribution include:
+	Two Data Centers - 2 members to Data Center 1 and 1 member to Data Center 2. If one of the members is arbiter, distribute the arbiter to DC 1 along with data-bearing number.
+		- If DC 1 goes down, the replica set can become read-only.
+		- If DC 2 goes down, the replica set remains writable as the members in DC 1 can hold an election.
+	Three Data Centers - 1 member to DC1, 1 member to DC2 and 1 to DC3. If any DC goes down, the replica set remains writable as the remaining members can hold an election.
+
+Example - 5-member replica set with possible distribution include:
+	Two Data Centers - 3 members to Data Center 1 and 2 members to Data Center 2.
+		- If DC 1 goes down, the replica set becomes read-only.	
+		- If DC 2 goes down, the replica set remains writable as the members in DC 1 can create a majority.
+	Three Data Centers - 2 members to DC 1, 2 members to DC2 and 1 member to DC 3. If any DC goes down, the replica set remains writable as the remaining members can hold an election.
+
+Electability of Members - Some members having networking restraint or limited resources should not be able to become a primary in a failover. Configure members that should not become primary to have priority 0.
+
+In some cases, you may prefer that the members in one data center be elected primary before the members in the other data centers. You can modify the priority of the members such that the members in the one data center has higher priority than the members in the other data centers.
+
+Connectivity - Verify that your network configuration allows communication among all members; i.e. each member must be able to connect to every other member.
+

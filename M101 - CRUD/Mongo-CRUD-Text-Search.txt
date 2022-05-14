@@ -1,0 +1,93 @@
+MongoDB supports query operations that perform a text search of string content. To perform text search, MongoDB uses a text index and the $text operator.
+
+- Views do not support text search.
+
+Text Index
+---------------
+db.collection.createIndex(<fieldname>: "text", ...)
+	- MongoDB provides text indexes to support text search queries on string content. text indexes can include any field whose value is a string or an array of string elements.
+	- To perform text search queries, you must have a text index on your collection. 
+	- A collection can only have one text search index, but that index can cover multiple fields.
+	- Sort operations cannot obtain sort order from a text index, even from a compound text index; i.e. sort operations cannot use the ordering in the text index.
+
+$text query operator
+----------------------
+	- Use the $text query operator to perform text searches on a collection with a text index.$text will tokenize the search string using whitespace and most punctuation as delimiters, and perform a logical OR of all such tokens in the search string.
+	- You can also search for exact phrases by wrapping them in double-quotes. If the $search string includes a phrase and individual terms, text search will only match documents that include the phrase.
+		db.stores.find( { $text: { $search: "\"coffee shop\"" } } )
+	- To exclude a word, you can prepend a "-" character. For example, to find all stores containing "java" or "shop" but not "coffee", use the following: 
+		db.stores.find( { $text: { $search: "java shop -coffee" } } )
+	- Use the optional $language field in the $text expression to specify a language that determines the list of stop words and the rules for the stemmer and tokenizer for the search string.
+		db.articles.find(
+		   { $text: { $search: "leche", $language: "es" } }
+		)
+	- To enable case sensitive search, specify $caseSensitive: true. Specifying $caseSensitive: true may impact performance.
+		db.articles.find( { $text: { $search: "Coffee", $caseSensitive: true } } )
+	- To enable diacritic sensitive search against a version 3 text index, specify $diacriticSensitive: true. Specifying $diacriticSensitive: true may impact performance.
+		db.articles.find( { $text: { $search: "CAFÉ", $diacriticSensitive: true } } )
+
+	- MongoDB will return its results in unsorted order by default. However, text search queries will compute a relevance score for each document that specifies how well a document matches the query.
+	- To sort the results in order of relevance score, you must explicitly project the $meta textScore field and sort on it:
+
+	db.stores.find(
+	   { $text: { $search: "java coffee shop" } },
+	   { score: { $meta: "textScore" } }
+	).sort( { score: { $meta: "textScore" } } )
+
+	The "textScore" metadata sorts in descending order.
+
+	- A compound index can include a text index key in combination with ascending/descending index keys. However, these compound indexes have the following restrictions:
+		- A compound text index cannot include any other special index types, such as multi-key or geospatial index fields.
+		- If the compound text index includes keys preceding the text index key, to perform a $text search, the query predicate must include equality match conditions on the preceding keys.
+		- When creating a compound text index, all text index keys must be listed adjacently in the index specification document.
+
+Restrictions on $text
+----------------------
+	- A query can specify, at most, one $text expression.
+	- The $text query can not appear in $nor expressions.
+	- The $text query can not appear in $elemMatch query expressions or $elemMatch projection expressions.
+	- To use a $text query in an $or expression, all clauses in the $or array must be indexed.
+	- You cannot use hint() if the query includes a $text query expression
+	- You cannot specify $natural sort order if the query includes a $text expression.
+	- You cannot combine the $text expression, which requires a special text index, with a query operator that requires a different type of special index. For example you cannot combine $text expression with the $near operator.
+	- Views do not support text search.
+
+	Specifying $caseSensitive: true and $diacriticSensitive: true may impact performance.
+
+	If using the $text operator in aggregation, the following restrictions also apply.
+
+	- The $match stage that includes a $text must be the first stage in the pipeline.
+	- A $text operator can only occur once in the stage.
+	- The $text operator expression cannot appear in $or or $not expressions.
+	- The text search, by default, does not return the matching documents in order of matching scores. To sort by descending score, use the $meta aggregation expression in the $sort stage.
+
+	The $text operator ignores language-specific stop words, such as the and and in English.
+
+	For case insensitive and diacritic insensitive text searches, the $text operator matches on the complete stemmed word. So if a document field contains the word blueberry, a search on the term blue will not match. However, blueberry or blueberries will match.
+
+	For case sensitive search (i.e. $caseSensitive: true), if the suffix stem contains uppercase letters, the $text operator matches on the exact word.
+
+	For diacritic sensitive search (i.e. $diacriticSensitive: true), if the suffix stem contains the diacritic mark or marks, the $text operator matches on the exact word.
+
+
+
+$meta
+------------
+Returns the meta data associated with the document eg."textScore" when performing text search
+	- { $meta: <metaDataKeyword> }
+	- Keyword are "textScore" or "indexKey"
+	- textScore - Returns the score associated with the corresponding $text query for each matching document. The text score signifies how well the document matched the search term or terms. Starting in MongoDB 4.4, must be used in conjunction with a $text query. In earlier versions, if not used in conjunction with a $text query, returns a score of null.
+	- indexKey - Returns an index key for the document if a non-text index is used. The { $meta: "indexKey" } expression is for debugging purposes only, and not for application logic, and is preferred over cursor.returnKey(). New in version 4.4
+
+textScore
+	- Requires $text search in find or aggregation in the query
+	- The "textScore" metadata sorts in descending order.
+	- In aggregation, you can sort the resulting documents by { $meta: "textScore" } without also having to project the textScore.
+	- In find, starting in MongoDB 4.4, you can sort the resulting documents by { $meta: "textScore" } without also having to project the textScore. In MongoDB 4.2 and earlier, to use { $meta: "textScore" } expression with sort() for a find operation, you must also include the same expression in the projection. In MongoDB 4.2 and earlier, to include the { $meta: "textScore" } in both the projection and sort for a find operation, you must specify the same field name in both places.
+	
+indexKey
+	- The { $meta: "indexKey" } expression is for debugging purposes only and not for application logic.
+	- The { $meta: "indexKey" } expression is preferred over cursor.returnKey().
+	- The return value returned depends on how the database decides to represent values in an index and may change across versions. The represented value may not be the actual value for the field.
+	- The value returned depends on the execution plan chosen by the system. For example, if there are two possible indexes which can be used to answer the query, then the value of the "indexKey" metadata depends on which index is selected.
+	- If an index is not used, the { $meta: "indexKey" } expression does not return a value and the field is not included as part of the output.

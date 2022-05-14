@@ -1,0 +1,63 @@
+Partial Indexes
+----------------
+Partial indexes only index the documents in a collection that meet a specified filter expression. By indexing a subset of the documents in a collection, partial indexes have lower storage requirements and reduced performance costs for index creation and maintenance.
+
+The partialFilterExpression option accepts a document that specifies the filter condition using:
+
+equality expressions (i.e. field: value or using the $eq operator),
+$exists: true expression,
+$gt, $gte, $lt, $lte expressions,
+$type expressions,
+$and operator at the top-level only
+
+db.restaurants.createIndex(
+   { cuisine: 1, name: 1 },
+   { partialFilterExpression: { rating: { $gt: 5 } } }
+)
+
+You can specify a partialFilterExpression option for all MongoDB index types.
+
+Partial indexes represent a superset of the functionality offered by sparse indexes and should be preferred over sparse indexes.
+
+Sparse indexes select documents to index solely based on the existence of the indexed field, or for compound indexes, the existence of the indexed fields.
+
+Partial indexes offer a more expressive mechanism than Sparse Indexes indexes to specify which documents are indexed.
+
+Compound Indexes with partial filter expression will be used only if partial filter expression is included in the query predicate.
+
+If you specify both the partialFilterExpression and a unique constraint, the unique constraint only applies to the documents that meet the filter expression.A partial index with a unique constraint does not prevent the insertion of documents that do not meet the unique constraint if the documents do not meet the filter criteria.
+
+Restrictions on Partial Indexes
+------------------------------------
+
+You cannot specify both the partialFilterExpression option and the sparse option.
+
+Supported only from MongoDB 3.2 or higher.
+
+_id indexes cannot be partial indexes.
+
+Shard key indexes cannot be partial indexes.
+
+Case Insensitive Indexes
+-------------------------
+Case insensitive indexes support queries that perform string comparisons without regard for case.
+
+db.collection.createIndex( { "key" : 1 },
+                           { collation: {
+                               locale : <locale>,
+                               strength : <strength>
+                             }
+                           } )
+
+Local - specifies language rules.
+strength - determines comparison rules. A value of 1 or 2 indicates a case insensitive collation.
+
+Using a case insensitive index does not affect the results of a query, but it can increase performance.
+
+To use an index that specifies a collation, query and sort operations must specify the same collation as the index. ie. locale & strength values. If a collection has defined a collation, all queries and indexes inherit that collation unless they explicitly specify a different collation.
+
+When you create a collection with a default collation, all the indexes you create subsequently inherit that collation unless you specify a different collation. All queries which do not specify a different collation also inherit the default collation.
+
+db.createCollection("names", {collation: {locale: 'en_US', strength: 2}})
+db.createIndex({first_name: 1}) -->Will inherit the collation from collection which is case insensitive.
+db.find({firstname: "betsy"}) --> Will inherit the default collation from collection which is case insensitive.

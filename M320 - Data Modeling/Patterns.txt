@@ -1,0 +1,117 @@
+- Reusable units of solution
+- Data Modelling and Schema Design
+
+Patterns may lead to:
+	- Duplication
+	- Data Staleness
+	- writing extra application side logic to ensure referential integrity
+
+Duplication
+	- Result of embedding information in a given document for faster access
+	- Required to maintain Data correctness & consistency, has minimal effect, needs to be handled when needed
+	- Resolve with bulk updates
+
+Staleness
+	- Due to new events come along at such a rate that updating some data constantly causes performance issues.
+	- Data quality & reliability is the concern
+	- how long can user tolerate?
+	- Long analytic queries? Queries on secondary nodes?
+	- Resolve using batch updates. Find the changes through a change stream
+
+Change stream
+	- Access real-time data changes without complexity and risk of tailing the Oplog.
+	- Apply change streams at database, collection or deployment (replica set or sharded cluster)
+	- Does not apply to system collections. ie. admin, local and config databases
+	- Storage Engine WiredTiger, Replica Set protocol version (pv1), Read concern majority enablement
+	- Open change stream from any of the data-bearing members for replica set. for sharded cluster, open from mongos.
+	- Uses aggregation framework
+
+Referential integrity
+	- Linking information between documents or tables
+	- no support for cascading deletes
+	- Challenge for correctness and consistency
+	- Resolve using change streams, single document or multi-document transitions
+
+Attribute Patterns
+	- Most frequently used patterns
+	Scenarios:
+		- Lots of similar fields with similar value types often
+		- want to search across many fields at once
+		- Fields present only in a small subset of documents
+	- Orthogonal pattern as against polymorphism
+	- Common characteristics or rare/undeterministic fields
+	- Reduces number of indexes
+	- Alternate is to use wildcard indexes
+	{"k": "<fieldname>"
+	, "v": "<fieldvalue>"
+	, "u": "<fieldUnit>"}
+
+Extended Reference Patterns
+	- Application side or lookup/graphLookup or embedding join table
+	- Managing Duplication
+		- Minimize duplication
+			- Select fields that do not join often
+			- Bring only fields you need to avoid joins
+		- After updating source - What and When extended references needs to be updated
+		- Duplication may be better than a unique reference
+	- scenario - Too many repetitive joins
+
+Subset Pattern:
+	- Working set is too big
+	- Lot of pages are evicted from memory
+	- A large part of documents is rarely needed
+	- Solution is to split the collections into 2 collections - most used and least used
+	- Embed the most used as a duplicate in the main document
+	- List of reviews / comments / actors in a product/article/movie
+
+Computed Pattern:
+	- Mathematical Operations (Sum, Average, Std Deviation etc.)
+	- Fan Out Operations (Fan Out on Reads vs Fan Out on writes) - Social media photo copying on followers page during writes instead of reads.
+	- Roll-up Operations (Multi-levels of rolling - Daily, Weekly, or any group operation)
+	- When to use Computed Pattern?
+		- Overuse of CPU
+		- Reduce latency for read operations
+	- IOT, Event Sources, Time Series Data, Frequent Aggregation Framework queries
+	- Faster reads and less resource utilization
+	- Avoid similar operations many times
+	- Whenever you are performing the same calculations repeatedly and you have a high read to write ratio, consider the Computed Pattern.
+
+
+Bucket Pattern
+	- Often used in IOT scenarios or time-series data or financial apps to group transactions by date, type or customer
+	- Mid-range to avoid too big documents or too many documents
+	- Random insertions or deletions in buckets
+	- Difficult to sort across buckets. preferable to sort within buckets.
+	- Ad hoc queries may be complex
+
+Schema Versioning pattern
+	- Updating Relational Database Schema
+		- Need time to update the Data
+		- usually done by stopping the application
+		- Hard to revert if something goes wrong
+	- Avoid downtime while upgrading schema
+	- Use Schema_version field for application to handle multiple versions of schema
+
+Tree Patterns
+	- Hierarchial data structures
+	- Who are the ancestors of node X? Who reports to Y? Find all nodes that are under Z? Change all categories under N to under P.
+	- Parent References
+	- Child references
+	- Array of ancestors
+	- Org Charts / Product Categories
+	- Materialized Paths
+
+Polymorphic pattern
+	- objects more similar than different
+	- want to keep objects in same collection
+	- Single view, product catalog, content mgmt
+
+Approximation Pattern
+	- Page views, web counters
+
+Outlier Pattern
+	- few documents would drive the solution
+	- less majority
+	- movie site solution
+	- Social networks, popularity
+	

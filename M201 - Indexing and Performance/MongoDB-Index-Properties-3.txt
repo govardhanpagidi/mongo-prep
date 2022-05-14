@@ -1,0 +1,48 @@
+Hidden Indexes
+---------------------
+Hidden indexes are not visible to the query planner and cannot be used to support a query.
+
+By hiding an index from the planner, users can evaluate the potential impact of dropping an index without actually dropping the index. If the impact is negative, the user can unhide the index instead of having to recreate a dropped index.
+
+Apart from being hidden from the planner, hidden indexes behave like unhidden indexes; i.e. unique & TTL index properties apply. Gets updated during write operations and continues to consume disk space and memory.
+
+Gets included in various statistics operations ($indexStats and db.collection.stats()). Hiding an unhidden index or unhiding a hidden index resets its $indexStats. Hiding an already hidden index or unhiding an already unhidden index does not reset the $indexStats.
+
+Restrictions
+----------------
+	- Requires FCV set to 4.4 or higher. Once hidden, it remains hidden even with FCV set to 4.2 on MongoDB 4.4 binaries.
+	- You cannot hide the _id index.
+	- You cannot cursor.hint() a hidden index.
+
+db.addresses.createIndex(
+   { borough: 1 },
+   { hidden: true }
+);
+
+db.collection.hideIndex()
+db.collection.unhideIndex()
+
+Sparse Indexes
+------------------------------
+Sparse indexes only contain entries for documents that have the indexed field, even if the index field contains a null value. 
+
+The index skips over any document that is missing the indexed field. The index is "sparse" because it does not include all documents of a collection.
+
+By contrast, non-sparse indexes contain all documents in a collection, storing null values for those documents that do not contain the indexed field.
+
+db.addresses.createIndex( { "xmpp_id": 1 }, { sparse: true } )
+
+The index does not index documents that do not include the xmpp_id field.
+
+Do not confuse sparse indexes in MongoDB with block-level indexes in other databases. Think of them as dense indexes with a specific filter.
+
+If a sparse index would result in an incomplete result set for queries and sort operations, MongoDB will not use that index unless a hint() explicitly specifies the index.
+
+For example, the query { x: { $exists: false } } will not use a sparse index on the x field unless explicitly hinted.
+
+If you include a hint() that specifies a sparse index when you perform a count() of all documents in a collection (i.e. with an empty query predicate), the sparse index is used even if the sparse index results in an incorrect count.
+
+2dsphere (version 2), 2d, geoHaystack, and text indexes are always sparse.
+
+An index that is both sparse and unique prevents collection from having documents with duplicate values for a field but allows multiple documents that omit the key.
+

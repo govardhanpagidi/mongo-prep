@@ -1,0 +1,156 @@
+Replication Basics
+Priority 0 Members
+Hidden Members
+Delayed Members
+Replica Arbiters
+Replica Protocol Version
+
+Replication Basics
+-------------------------
+Advantages
+	- Automatic Failover
+	- Fault tolerance
+	- Provides high data availability
+
+Arbiter - No data. Only for voting.
+
+Primary receives all writes and records its changes into oplog. Secondaries replicate the primary's oplog and apply the operations to their data set
+
+Replication is asynchronous.
+
+Secondary members can log oplog entries that take longer than slow operation threshold to apply. These are logged in the diagnostic log under the REPL component as op: <oplog entry> took <num> ms.
+
+Automatic Failover - If no communication with primary for more than 10s (electionTimeoutMillis), election is triggered. Median time before a cluster elects a new primary should not exceed 12 seconds assuming default settings.
+
+Lowering electionTimeoutMillis than 10 secs can result in faster detection of primary failure. Frequent elections may get called due to temporary network latency even if the primary is healthy. This can result in increased rollbacks for w:1 write operations.
+
+Mirrored reads to pre-warm electable secondary members cache with recently accessed data. This can help restore performance more quickly after an election.
+
+Priority 0
+---------------
+Priority 0 members cannot become primary and hence cannot trigger elections. 
+
+Priority 0 members can acknowledge write concern w: <number>. To acknowlege writes with w: majority, they must also be a voting member (ie. votes > 0). Non-voting replica set members cannot contribute to acknowledging write operations with w: majority.
+
+Typically priority 0 members are used for high latency data center that is distant from the main deployment. It may serve local read requests well, but not an ideal candidate to perform primary duties due to its latency.
+
+Another usage is to function as standby.  In some replica sets, it might not be possible to add a new member in a reasonable amount of time. A standby member keeps a current copy of the data to be able to replace an unavailable member.
+
+In many cases, you need not set standby to priority 0. However, in replica sets with varied hardware or geographic distribution, a priority 0 standby ensures that only certain members become primary.
+
+var cfg = rs.conf()
+cfg.members[2].priority = 0
+rs.reconfig(cfg)
+
+Hidden and Delayed members must have priority 0.
+
+Priority and Votes
+-------------------------
+Default value for priority is 1.
+Priority is a Floating point (decimal) number between 0 and 1000
+
+Non-voting members (ie.votes is 0) must have priority 0.
+Members with priority greater than 0 cannot have 0 votes.
+
+Before increasing the priority of a non-voting member, consider the following:
+	 - MongoDB replica sets can have no more than 7 voting members. If replica set already has 7 voting members, you cannot modify the priority of any remaining members in the replica set to be greater than 0.
+	- replica reconfig can add or remove no more than one voting member at a time. To change multiple, issue a series of rs.reconfig() operations to modify one member at a time.
+
+Hidden Members
+--------------
+Hidden members are invisible to client applications.
+Hidden members may vote in elections.
+
+Useful for workloads with different usage patterns from other members in the replica set - reporting & backups.
+Hidden must always be priority 0 members and cannot become primary.
+db.hello() method does not display hidden members.
+
+Hidden members can acknowledge write operations with w: <number>. For write operations isued with w : "majority", however, hidden members must also be voting members (i.e. members[n].votes greater than 0) to acknowledge the "majority" write operation. Non-voting replica set members (i.e. members[n].votes is 0) cannot contribute to acknowledging write operations with majority write concern.
+
+Clients will not distribute reads with the appropriate read preference to hidden members.
+
+Delayed Members
+--------------------
+Contain copies of replica member's data set. However reflects an earlier or delayed state of the set. Helps to recover from various kinds of human errors - such as unsuccesful application upgrades and operator errors including dropped databases and collections.
+
+Must be priority 0 members. Delayed members cannot become primary.
+Should be hidden members. Always prevent applications from seeing and querying delayed members.
+Delayed members do vote in elections for primary, if members[n].votes is set to 1.
+
+Amount of delay (slaveDelay)
+	- must be equal to or greater than your expected maintenance window durations.
+	- must be smaller than the capacity of the oplog.
+
+Delayed members can acknowledge write operations with w: <number>. For write operations isued with w : "majority", however, delayed members must also be voting members (i.e. members[n].votes greater than 0) to acknowledge the "majority" write operation. Non-voting replica set members (i.e. members[n].votes is 0) cannot contribute to acknowledging write operations with majority write concern.
+
+Delayed secondaries can return write acknowledgment no earlier than the configured slaveDelay (default is 0)
+
+In sharded clusters, delayed members have limited utility when the balancer is enabled. Because delayed members replicate chunk migrations with a delay, the state of delayed members in a sharded cluster are not useful for recovering to a previous state of the sharded cluster if any migrations occur during the delay window.
+
+The length of the secondary members[n].slaveDelay must fit within the window of the oplog. If the oplog is shorter than the members[n].slaveDelay window, the delayed member cannot successfully replicate operations.
+
+Replica Set Arbiter
+-------------------------
+In some circumstances (such as you have a primary and a secondary but cost constraints prohibit adding another secondary), you may choose to add an arbiter to your replica set. 
+
+An arbiter does not have a copy of data set and cannot become a primary. However, an arbiter participates in elections for primary. An arbiter has exactly 1 election vote.
+
+An arbiter allows the set to have an odd number of votes to break a tie.
+
+Starting in MongoDB 3.6, arbiters have priority 0. When you upgrade a replica set to MongoDB 3.6, if the existing configuration has an arbiter with priority 1, MongoDB 3.6 reconfigures the arbiter to have priority 0.
+
+Do not run an arbiter on systems that also host the primary or the secondary members of the replica set.
+
+For a 3-member Primary-Secondary-Arbiter (PSA) Architecture or a sharded cluster with a 3-member PSA shards, the cache pressure will increase if any data bearing node is down and support for "majority" read concern is enabled.
+To prevent the storage cache pressure from immobilizing a deployment with 3-member PSA architecture, you can disable read concern "majority" starting in MongoDB 4.0.3.
+
+For replica sets with arbiters, pv1 increases the likelihood of w: 1 rollbacks compared to pv0 for MongoDB 3.4.0, 3.4.1, 3.2.11 or earlier
+
+Because arbiters do not store data, they do not possess the internal table of user and role mappings used for authentication. Thus, the only way to log on to an arbiter with authorization active is to use the localhost exception.
+
+When running with authorization, arbiters exchange credentials with other members of the set to authenticate. MongoDB encrypts the authentication process, and the MongoDB authentication exchange is cryptographically secure.
+
+The only communication between arbiters and other set members are: votes during elections, heartbeats, and configuration data. These exchanges are not encrypted.
+
+However, if your MongoDB deployment uses TLS/SSL, MongoDB will encrypt all communication between replica set members.
+
+As with all MongoDB components, run arbiters in trusted network environments.
+
+An arbiter does not store data, but until the arbiter's mongod process is added to the replica set, the arbiter will act like any other mongod process and start up with a set of data files and with a full-sized journal.
+
+In general, avoid deploying more than one arbiter per replica set.
+
+rs.addArb("m1.example.net:27017")
+
+Replica Set Protocol Version
+-------------------------------
+Starting in 4.0, MonogoDB only supports protocol version 1(pv1) and is the default for all new replica sets created.
+
+With pv1, you can use catchUpTimeoutMillis to prioritize between faster failovers and preservation of w:1 writes.
+
+catchUpTimeoutMillis - Default is -1, infinite catchup time.
+To downgrade a replica set initiated in version 3.6 to 3.4, change catchUpTimeoutMillis from -1 to a positive number. Failure to change this value to a positive number causes nodes running version 3.4 to neither restart nor join the replica set. 
+
+pv1 guarantees the preservation of confirmed w: majority writes.
+
+For replica sets with arbiters, pv1 increases the likelihood of w: 1 rollbacks compared to pv0 for MongoDB 3.4.0, 3.4.1, 3.2.11 or earlier
+
+For replica sets with different priority settings, pv1 increases the likelihood of w: 1 rollbacks compared to pv0 for MongoDB 3.4.0, 3.4.1, 3.2.11 or earlier
+
+pv1 does not use vetoes. Individual members can vote for or against a candidate in a particular election, but cannot individually veto (abort) an election unilaterally.
+
+pv1 uses the concept of term. This allows for a faster detection of simultaneous primaries and for multiple successful elections in a short period of time.
+
+pv1 makes a "best-effort" attempt to have the secondary with the highest priority available call an election. This could lead to back-to-back elections as eligible members with higher priority can call an election. 
+	- Priority elections have been limited to occur only if the higher priority node is within 10 seconds of the current primary.
+	- Arbiters will vote no in elections if they detect a healthy primary of equal or greater priority to the candidate.
+
+pv1 prevents double voting in one member's call for election. This is achieved through its use of terms.
+
+To change pv from 0 to 1 on older MongoDB versions, ensure that atleast one oplog entry has replicated from the primary to all secondaries. To check, on each secondary, check the optims.lastCommittedOpTime.t field from rs,status()
+	- If the current replica set protocol version is 0, the t is equal to -1.
+	- If the current replica set protocol version is 1, the t is greater than -1.
+
+cfg = rs.conf();
+cfg.protocolVersion=1;
+rs.reconfig(cfg);

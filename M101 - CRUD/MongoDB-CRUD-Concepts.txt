@@ -1,0 +1,160 @@
+Atomicity & Transactions
+------------------------
+In MongoDB, a write operation is atomic on the level of a single document, even if the operation modifies multiple embedded documents within a single document.
+
+When a single write operation (e.g. db.collection.updateMany()) modifies multiple documents, the modification of each document is atomic, but the operation as a whole is not atomic.
+
+For situations that require atomicity of reads and writes to multiple documents (in a single or multiple collections), MongoDB supports multi-document transactions:
+
+In version 4.0, MongoDB supports multi-document transactions on replica sets.
+In version 4.2, MongoDB introduces distributed transactions, which adds support for multi-document transactions on sharded clusters and incorporates the existing support for multi-document transactions on replica sets.
+
+Concurrency Control
+-----------------------
+Concurrency control allows multiple applications to run concurrently without causing data inconsistency or conflicts.
+
+One approach is to create a unique index on a field that can only have unique values. This prevents insertions or updates from creating duplicate data. Create a unique index on multiple fields to force uniqueness on that combination of field values. 
+
+Another approach is to specify the expected current value of a field in the query predicate for the write operations.
+
+Read Isolation, Consistency and Recency
+----------------------------------------
+Isolation Guarantees
+	Read Uncommitted 
+		- Read uncommitted is the default isolation level and applies to mongod standalone instances as well as to replica sets and sharded clusters.
+		- Depending on the read concern, clients can see the results of writes before the writes are durable. 
+		- Regardless of a write's write concern, other clients using "local" or "available" read concern can see the result of a write operation before the write operation is acknowledged to the issuing client.
+		- Clients using "local" or "available" read concern can read data which may be subsequently rolled back during replica set failovers.
+		- For operations in a multi-document transaction, when a transaction commits, all data changes made in the transaction are saved and visible outside the transaction. That is, a transaction will not commit some of its changes while rolling back others.
+		- Until a transaction commits, the data changes made in the transaction are not visible outside the transaction. However, when a transaction writes to multiple shards, not all outside read operations need to wait for the result of the committed transaction to be visible across the shards.
+
+	Read Uncommitted And Single Document Atomicity
+		- Write operations are atomic with respect to a single document; i.e. if a write is updating multiple fields in the document, a read operation will never see the document with only some of the fields updated. However, although a client may not see a partially updated document, read uncommitted means that concurrent read operations may still see the updated document before the changes are made durable.
+
+		- With a standalone mongod instance, a set of read and write operations to a single document is serializable. With a replica set, a set of read and write operations to a single document is serializable only in the absence of a rollback.
+
+Cursor Snapshot
+---------------
+	- MongoDB cursors can return the same document more than once in some situations. As a cursor returns documents, other operations may interleave with the query. If one of these operations changes the indexed field on the index used by the query, then the cursor could return the same document more than once.
+	- Queries that use unique indexes can, in some cases, return duplicate values. If a cursor using a unique index interleaves with a delete and insert of documents sharing the same unique value, the cursor may return the same unique value twice from different documents.
+
+Monotonic Writes - MongoDB provides monotonic write guarantees, by default, for standalone mongod instances and replica set.
+
+Real Time Order
+------------
+For read and write operations on the primary, issuing read operations with "linearizable" read concern and write operations with "majority" write concern enables multiple threads to perform reads and writes on a single document as if a single thread performed these operations in real time; that is, the corresponding schedule for these reads and writes is considered linearizable.
+
+Causal Consistency
+--------------------
+If an operation logically depends on a preceding operation, there is a causal relationship between the operations. For example, a write operation that deletes all documents based on a specified condition and a subsequent read operation that verifies the delete operation have a causal relationship.
+
+With causally consistent sessions, MongoDB executes causal operations in an order that respect their causal relationships, and clients observe results that are consistent with the causal relationships.
+
+To provide causal consistency, MongoDB 3.6 enables causal consistency in client sessions. A causally consistent session denotes that the associated sequence of read operations with "majority" read concern and write operations with "majority" write concern have a causal relationship that is reflected by their ordering. Applications must ensure that only one thread at a time executes these operations in a client session.
+
+Causal Consistency Guarantees - Read your writes, Monotonic reads, Monotonic Writes, Writes follow reads
+
+Read Preference - These guarantees hold across all members of the MongoDB deployment. For example, if, in a causally consistent session, you issue a write with "majority" write concern followed by a read that reads from a secondary (i.e. read preference secondary) with "majority" read concern, the read operation will reflect the state of the database after the write operation.
+
+Isolation - Operations within a causally consistent session are not isolated from operations outside the session. If a concurrent write operation interleaves between the session's write and read operations, the session's read operation may return results that reflect a write operation that occurred after the session's write operation.
+
+The following operations that build in-memory structures are not causally consistent - collStatus, $collStats, $currentOp, createIndexes, dbHash, dbStats, getMore, $indexStats, mapReduce, ping, serverStatus, validate
+
+Read concern "majority" and Write Concern "majority" - All 4 causal consisteny guarantees. ie.Read your writes, Monotonic reads, Monotonic Writes, Writes follow reads
+Read concern "majority" and Write concern "{w:1}" = Only monotonic reads and writes follow reads
+Read concern "local" and Write concern "{w:1}" - Cannot guarantee causal consistency
+Read concern "local" and Write concern "majority" - Only monotonic writes
+
+Distributed Queries
+------------------------
+Read Operations to replica sets 
+	- By default, clients reads from a replica set's primary; however, clients can specify a read preference to direct read operations to other members.
+	- For example, clients can configure read preferences to read from secondaries or from nearest member to:
+		- reduce latency in multi-data-center deployments,
+		- improve read throughput by distributing high read-volumes (relative to write volume),
+		- perform backup operations, and/or
+		- allow reads until a new primary is elected.
+
+	- Read operations from secondary members of replica sets may not reflect the current state of the primary. Read preferences that direct read operations to different servers may result in non-monotonic reads.
+	- Starting in MongoDB 3.6, clients can use causally consistent sessions, which provides various guarantees, including monotonic reads.
+	- You can configure the read preference on a per-connection or per-operation basis. 
+
+Write Operations on Replica Sets
+	- In replica sets, all write operations go to the set's primary. 
+	- The primary applies the write operation and records the operations on the primary's operation log or oplog. The oplog is a reproducible sequence of operations to the data set. secondary members of the set continuously replicate the oplog and apply the operations to themselves in an asynchronous process.
+
+Read Operations to sharded clusters
+	- Sharded clusters allow you to partition a data set among a cluster of mongod instances in a way that is nearly transparent to the application. For an overview of sharded clusters, see the Sharding section of this manual.
+	- For a sharded cluster, applications issue operations to one of the mongos instances associated with the cluster.
+	- Read operations on sharded clusters are most efficient when directed to a specific shard. Queries to sharded collections should include the collection's shard key. When a query includes a shard key, the mongos can use cluster metadata from the config database to route the queries to shards.
+	- If a query does not include the shard key, the mongos must direct the query to all shards in the cluster. These scatter gather queries can be inefficient. On larger clusters, scatter gather queries are unfeasible for routine operations.
+	- For replica set shards, read operations from secondary members of replica sets may not reflect the current state of the primary. Read preferences that direct read operations to different servers may result in non-monotonic reads.
+
+
+Write Operations to Sharded Clusters
+	- For sharded collections in a sharded cluster, the mongos directs write operations from applications to the shards that are responsible for the specific portion of the data set. The mongos uses the cluster metadata from the config database to route the write operation to the appropriate shards.
+	- MongoDB partitions data in a sharded collection into ranges based on the values of the shard key. Then, MongoDB distributes these chunks to shards. The shard key determines the distribution of chunks to shards. This can affect the performance of write operations in the cluster.
+	- Update operations that affect a single document must include the shard key or the _id field. Updates that affect multiple documents are more efficient in some situations if they have the shard key, but can be broadcast to all shards.
+	- If the value of the shard key increases or decreases with every insert, all insert operations target a single shard. As a result, the capacity of a single shard becomes the limit for the insert capacity of the sharded cluster.
+
+Linearizable Reads via findAndModify
+--------------------------------------
+When reading from a replica set, it is possible to read data that is stale (i.e. may not reflect all writes that have occurred prior to the read operation) or not durable (i.e. the state of the data may reflect a write that has not been acknowledged by a majority or the replica set members and thus could be rolled back), depending on the read concern used.
+
+Starting in version 3.4, MongoDB introduces "linearizable" read concern that returns durable data that is not stale. Linearizable read concern guarantees only apply if read operations specify a query filter that uniquely identifies a single document.
+
+Query Plan
+----------------
+For a query, the MongoDB query optimizer chooses and caches the most efficient query plan given the available indexes. The evaluation of the most efficient query plan is based on the number of "work units" (works) performed by the query execution plan when the query planner evaluates candidate plans.
+
+The associated plan cache entry is used for subsequent queries with the same query shape.
+
+Plan Cache Entry States - Missing, Inactive, Active
+
+Missing--->Inactive-->Active
+
+Plan Cache Flushes - 
+	- If mongod restarts or shuts down. 
+	- Catalog operations like index or collection drops clear the plan cache. 
+	- Least Recently Used (LRU) cache replacement mechanism clears the recently accessed cache entry, regardless of state.
+
+Plan Cache Debug Info Size Limit - 
+	- Cumulative size of the plan caches for all collections cannot exceed 0.5GB. When exceeds, the additional plan cache entries are stored without debug information like - createdFromQuery, cachedPlan, creationExecStats, candidatePlanScores.
+
+queryHash -  To help identify slow queries with the same query shape, starting in MongoDB 4.2, each query shape is associated with a queryHash. The queryHash is a hexadecimal string that represents a hash of the query shape and is dependent only on the query shape.
+
+As with any hash function, two different query shapes may result in the same hash value. However, the occurrence of hash collisions between different query shapes is unlikely.
+
+PlanCacheKey - To provide more insight into the query plan cache, MongoDB 4.2 introduces the planCacheKey. planCacheKey is a hash of the key for the plan cache entry associated with the query.
+
+Unlike the queryHash, the planCacheKey is a function of both the query shape and the currently available indexes for the shape. That is, if indexes that can support the query shape are added/dropped, the planCacheKey value may change whereas the queryHash value would not change.
+
+Index Filter - Index filters are set with the planCacheSetFilter command and determine which indexes the optimizer evaluates for a query shape.A query shape consists of a combination of query, sort, and projection specifications. If an index filter exists for a given query shape, the optimizer only considers those indexes specified in the filter.
+
+When an index filter exists for the query shape, MongoDB ignores the hint(). 
+
+Index filters only affect which indexes the optimizer evaluates; the optimizer may still select the collection scan as the winning plan for a given query shape.
+
+Index filters exist for the duration of the server process and do not persist after shutdown. MongoDB also provides a command to manually remove filters.
+
+Because index filters override the expected behavior of the optimizer as well as the hint() method, use index filters sparingly.
+
+Tailable Cursors
+---------------------
+By default, MongoDB will automatically close a cursor when the client has exhausted all results in the cursor. However, for capped collections you may use a Tailable Cursor that remains open after the client exhausts the results in the initial cursor. Tailable cursors are conceptually equivalent to the tail Unix command with the -f option (i.e. with "follow" mode). After clients insert new additional documents into a capped collection, the tailable cursor will continue to retrieve documents.
+
+Use tailable cursors on capped collections that have high write volumes where indexes aren't practical. For instance, MongoDB replication uses tailable cursors to tail the primary's oplog.
+
+If your query is on an indexed field, do not use tailable cursors, but instead, use a regular cursor. Keep track of the last value of the indexed field returned by the query. To retrieve the newly added documents, query the collection again using the last value of the indexed field in the query criteria, as in the following example:
+
+db.<collection>.find( { indexedField: { $gt: <lastvalue> } } )
+
+Tailable cursors do not use indexes and return documents in natural order.
+
+Because tailable cursors do not use indexes, the initial scan for the query may be expensive; but, after initially exhausting the cursor, subsequent retrievals of the newly added documents are inexpensive.
+
+Tailable cursors may become dead, or invalid, if either:
+	- the query returns no match.
+	- the cursor returns the document at the "end" of the collection and then the application deletes that document.
+
+A dead cursor has an id of 0.

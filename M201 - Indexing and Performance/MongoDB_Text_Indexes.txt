@@ -1,0 +1,65 @@
+MongoDB provides text indexes to support text search queries on string content. text indexes can include any field whose value is a string or an array of string elements.
+
+Version 1, 2 & 3. Version 3 is the default created in MongoDB 3.2 and later
+To override the default version and specify a different version, include the option { "textIndexVersion": <version> } when creating the index.
+
+A collection can have at most one text index.
+
+db.reviews.createIndex( { comments: "text" } )
+db.reviews.createIndex(
+   {
+     subject: "text",
+     comments: "text"
+   }
+ )
+A compound index can include text index keys in combination with ascending/descending index keys. To drop a text index, use text index name.
+
+Weights for text index
+------------------------
+For a text index, the weight of an indexed field denotes the significance of the field relative to the other indexed fields in terms of the text search score.
+
+For each indexed field in the document, MongoDB multiplies the number of matches by the weight and sums the results. Using this sum, MongoDB then calculates the score for the document. See $meta operator for details on returning and sorting by text scores.
+
+The default weight is 1 for the indexed fields. To adjust the weights for the indexed fields, include the weights option in the db.collection.createIndex() method.
+
+Wildcard Text Indexes
+-------------------------
+Wildcard Text Indexes are distinct from Wildcard Indexes. Wildcard indexes cannot support queries using the $text operator. Only Wildcard Text Indexes support the $text operator. Both uses the $** field pattern though.
+
+db.collection.createIndex( { "$**": "text" } )
+
+Languages for text indexes
+--------------------------
+MongoDB supports text search for various languages. text indexes drop language-specific stop words (e.g. in English, the, an, a, and, etc.) and use simple language-specific suffix stemming. If you specify a language value of "none", then the text search uses simple tokenization with no list of stop words and no stemming.
+
+text indexes are always sparse and ignore the sparse option. If a document lacks a text index field (or the field is null or an empty array), MongoDB does not add an entry for the document to the text index. 
+
+Restrictions
+----------------
+	- A collection can have at most one text index.
+	- You cannot use hint() if the query includes a $text query expression.
+	- Sort operations cannot obtain sort order from a text index, even from a compound text index; i.e. sort operations cannot use the ordering in the text index.
+	- A compound index can include a text index key in combination with ascending/descending index keys. However, these compound indexes have the following restrictions:
+		- A compound text index cannot include any other special index types, such as multi-key or geospatial index fields.
+		- If the compound text index includes keys preceding the text index key, to perform a $text search, the query predicate must include equality match conditions on the preceding keys.
+		- When creating a compound text index, all text index keys must be listed adjacently in the index specification document.
+
+Specify language associated with text index at a document or embedded document level. 
+	- Language will be considered at embedded document level if present. If not, document-level if present. If not, default language
+	db.quotes.createIndex(
+   { content : "text" },
+   { default_language: "spanish" }
+)
+
+{
+   _id: 1,
+   language: "portuguese",
+   original: "A sorte protege os audazes.",
+   translation:
+     [
+        {
+           language: "english",
+           quote: "Fortune favors the bold."
+        }
+]
+}

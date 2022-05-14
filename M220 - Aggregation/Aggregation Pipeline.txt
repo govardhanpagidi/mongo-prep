@@ -1,0 +1,57 @@
+Aggregation Pipeline
+--------------------
+	- All stages can appear multiple times except $out, $merge and $geoNear
+	- $geoNear must be the first stage in the aggregation pipeline
+	- Aggregation pipeline expression are stateless except $accumulator expressions
+	- Custom aggregator operators are $accumulator and $function
+
+	Indexes can be used to improve pipeline performance. 
+	- $sort stage can use an index as long as it is not preceded by a $project, $unwind or $group stage
+	- $group stage can sometimes use an index to find first document in each group if:
+		- $group is preceded by a $sort stage that sorts the fields to group by
+		- Index on the grouped field which matches the sort order
+		- Only accumulator used in $group stage is $first
+
+Aggregation Pipeline Optimization
+------------------------------------
+	Pipeline Sequence optimization
+		- ($project or $unset or $addFields or $set) + $match sequence optimization
+		- $sort + $match sequence optimization
+		- $redact + $match sequence optimization
+		- $project/$unset + $skip sequence optimization
+	Pipeline Coalescence Optmization	
+		- $sort + $limit coalescence
+		- $limit + $limit coalescence
+		- $skip + $skip coalescence
+		- $match + $match coalescence
+		- $lookup + $unwind coalescence0
+	$sort + $skip + $limit sequence - $sort + $limit coalescence and increases the $limit amount with the reordering.
+
+Aggregation Pipeline Limits
+---------------------------
+	1. Result Size Restrictions - Aggregate command can either return a cursor or store results in a collection. Each document in the result set is subject to BSON Document Size limit ie. 16 MB. The documents may exceed this size during pipeline processing but the returned documents should not exceed 16 MB. 
+
+	The db.collection.aggregate() method returns a cursor by default.
+
+	2. Memory Restrictions - Each individual pipeline stage has a limit of 100 MB.By default, if a stage exceeds this limit, MongoDB produces an error. For some pipeline stages you can allow pipeline processing to take up more space by using the allowDiskUse option to enable aggregation pipeline stages to write data to temporary files.
+	$bucket, $bucketAuto, $group, $sort when the sort operation is not supported by index, $sortByCount
+
+	If the results of one of your $sort pipeline stages exceed the limit, consider adding a $limit stage.
+
+	The $graphLookup stage must stay within the 100 megabyte memory limit. If allowDiskUse: true is specified for the aggregate() operation, the $graphLookup stage ignores the option. If there are other stages in the aggregate() operation, allowDiskUse: true option is in effect for these other stages.
+
+	the profiler log messages and diagnostic log messages includes a usedDisk indicator if any aggregation stage wrote data to temporary files due to memory restrictions.
+
+Aggregation Pipeline and Sharded Collections
+----------------------------------------------
+The aggregation pipeline supports operations on sharded collections. 
+
+If the pipeline starts with an exact $match on a shard key, the entire pipeline runs on the matching shard only. Previously, the pipeline would have been split, and the work of merging it would have to be done on the primary shard.
+
+When aggregation operations run on multiple shards, the results are routed to the mongos to be merged, except in the following cases:
+	- If the pipeline includes the $out or $lookup stages, the merge runs on the primary shard.
+	- If the pipeline includes a sorting or grouping stage, and the allowDiskUse setting is enabled, the merge runs on a randomly-selected shard.
+
+When splitting the aggregation pipeline into two parts, the pipeline is split to ensure that the shards perform as many stages as possible with consideration for optimization.
+
+
